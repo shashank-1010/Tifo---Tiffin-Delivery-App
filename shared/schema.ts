@@ -11,6 +11,7 @@ export const userSchema = z.object({
   createdAt: z.string(),
   address: z.string(),
   city: z.string(),
+  walletBalance: z.number().optional(),
 });
 
 // ✅ NEW: Review Schema for Ratings
@@ -705,3 +706,45 @@ export const resetPasswordSchema = z.object({
 export type ForgotPasswordData = z.infer<typeof forgotPasswordSchema>;
 export type VerifyOTPData = z.infer<typeof verifyOTPSchema>;
 export type ResetPasswordData = z.infer<typeof resetPasswordSchema>;
+
+// ✅ NEW: Wallet schemas
+export const walletCouponSchema = z.object({
+  _id: z.string(),
+  customerId: z.string(),
+  code: z.string(),
+  description: z.string().optional().default(""),
+  discountType: z.enum(["fixed", "percentage"]),
+  discountValue: z.number(),
+  isActive: z.boolean(),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+});
+export type WalletCoupon = z.infer<typeof walletCouponSchema>;
+
+export const walletTransactionSchema = z.object({
+  _id: z.string(),
+  customerId: z.string(),
+  type: z.enum(["credit", "debit"]),
+  amount: z.number(),
+  balanceAfter: z.number(),
+  reason: z.string().optional().default(""),
+  createdAt: z.string().optional(),
+});
+export type WalletTransaction = z.infer<typeof walletTransactionSchema>;
+
+export type WalletData = {
+  balance: number;
+  coupons: WalletCoupon[];
+  transactions: WalletTransaction[];
+};
+
+export type WalletCustomer = Pick<User, "_id" | "name" | "email" | "phone"> & {
+  walletBalance: number;
+  createdAt: string;
+};
+
+export type AdminWalletDetail = {
+  customer: WalletCustomer;
+  coupons: WalletCoupon[];
+  transactions: WalletTransaction[];
+};

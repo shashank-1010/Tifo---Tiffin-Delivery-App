@@ -14,6 +14,9 @@ export interface IUser extends Document {
   resetPasswordOtp?: string;
   resetPasswordOtpExpiry?: Date;
   resetPasswordAttempts?: number;
+
+  // ✅ NEW: Wallet field
+  walletBalance: number;
 }
 
 const UserSchema = new Schema<IUser>(
@@ -29,7 +32,10 @@ const UserSchema = new Schema<IUser>(
      // ✅ NEW: Password reset fields
   resetPasswordOtp: { type: String },
   resetPasswordOtpExpiry: { type: Date },
-  resetPasswordAttempts: { type: Number, default: 0 }
+  resetPasswordAttempts: { type: Number, default: 0 },
+
+  // ✅ NEW: Wallet field - admin can increase/decrease this
+  walletBalance: { type: Number, required: true, default: 0 }
   },
   { timestamps: true }
 );

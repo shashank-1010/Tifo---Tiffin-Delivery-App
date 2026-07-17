@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { ChefHat, User, LogOut, Menu, X, ShoppingCart, MapPin, ChevronDown, CalendarRange } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useCart } from "@/lib/cart-context";
+import { WalletButton } from "@/components/wallet-button";
 import { useState } from "react";
 import {
   DropdownMenu,
@@ -63,6 +64,7 @@ export function Navbar() {
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center gap-3">
             {(!isAuthenticated || user?.role === "customer") && <CartButton />}
+            {isAuthenticated && user?.role === "customer" && <WalletButton />}
             
             {isAuthenticated ? (
               <>
@@ -137,6 +139,7 @@ export function Navbar() {
           {/* Mobile - Cart + Menu Toggle */}
           <div className="flex items-center gap-2 md:hidden">
             {(!isAuthenticated || user?.role === "customer") && <CartButton onClick={() => setMobileMenuOpen(false)} />}
+            {isAuthenticated && user?.role === "customer" && <WalletButton />}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors"

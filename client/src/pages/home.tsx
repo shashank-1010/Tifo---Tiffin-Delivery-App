@@ -65,6 +65,7 @@ import {
 import { Link, useLocation } from "wouter";
 import type { TiffinWithSeller } from "@shared/schema";
 import { useAuth } from "@/lib/auth-context";
+import { WalletButton } from "@/components/wallet-button";
 import { useCart } from "@/lib/cart-context";
 import { useToast } from "@/hooks/use-toast";
 
@@ -633,7 +634,7 @@ export default function Home() {
     queryKey: ["/api/top-rated-sellers"],
   });
 
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const { addItem: addToCart, totalItems } = useCart();
   const { toast } = useToast();
 
@@ -867,6 +868,7 @@ export default function Home() {
                   )}
                 </button>
               </Link>
+              {isAuthenticated && user?.role === "customer" && <WalletButton />}
               <button onClick={() => setShowLoginPopup(true)} className="w-9 h-9 sm:w-10 sm:h-10 rounded-full overflow-hidden border-2 border-orange-300 flex items-center justify-center bg-gray-100 flex-shrink-0">
                 <img src="https://tse2.mm.bing.net/th/id/OIP.7voziSoXjbJfxit4O9xJZgHaHa?r=0&pid=Api&P=0&h=180" alt="Profile" className="w-full h-full object-cover" />
               </button>

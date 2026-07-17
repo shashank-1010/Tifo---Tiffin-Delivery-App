@@ -14,6 +14,7 @@ import {
   sendSellerStatusUpdate,
 } from './emailService';
 import { withLiveStatus } from "./services/deliveryScheduleService";
+import { registerWalletRoutes } from "./walletRoutes";
 
 
 // ✅ ADD THESE IMPORTS AT THE TOP
@@ -179,6 +180,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // ✅ Register top rated routes
   registerTopRatedRoutes(app);
+
+  // ✅ Register wallet routes (customer wallet + admin wallet/coupon controls)
+  registerWalletRoutes(app);
   
   // Auth routes
   app.post(

@@ -14,7 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 import { useLocation } from "wouter";
 import { queryClient } from "@/lib/queryClient";
-import type { SellerWithUser, BookingWithDetails, AdminStats } from "@shared/schema";
+import type { SellerWithUser, BookingWithDetails, AdminStats, WalletCustomer, WalletCoupon as WalletCouponItem, WalletTransaction as WalletTransactionItem, AdminWalletDetail } from "@shared/schema";
 import {
   ArrowLeft,
   Users,
@@ -41,6 +41,10 @@ import {
   CheckCircle2,
   Percent,
   Calendar,
+  Wallet,
+  PlusCircle,
+  MinusCircle,
+  History,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -173,6 +177,405 @@ function getDiscountText(coupon: Coupon) {
   return coupon.discountType === "fixed"
     ? `₹${coupon.discountValue} off`
     : `${coupon.discountValue}% off`;
+}
+
+// ---------------------------------------------------------------------------
+// Wallet management (admin)
+// ---------------------------------------------------------------------------
+
+function WalletManagement() {
+  const { toast } = useToast();
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedCustomer, setSelectedCustomer] = useState<WalletCustomer | null>(null);
+  const [isAdjustOpen, setIsAdjustOpen] = useState(false);
+  const [isCouponOpen, setIsCouponOpen] = useState(false);
+  const [adjustType, setAdjustType] = useState<"credit" | "debit">("credit");
+  const [adjustAmount, setAdjustAmount] = useState("");
+  const [adjustReason, setAdjustReason] = useState("");
+  const [couponForm, setCouponForm] = useState({
+    code: "",
+    description: "",
+    discountType: "fixed" as "fixed" | "percentage",
+    discountValue: "",
+  });
+
+  const { data: customers = [], isLoading } = useQuery<WalletCustomer[]>({
+    queryKey: ["/api/admin/wallet/customers", searchTerm],
+    queryFn: () =>
+      apiRequest("GET", `/api/admin/wallet/customers${searchTerm ? `?search=${encodeURIComponent(searchTerm)}` : ""}`),
+  });
+
+  const { data: detail, isLoading: detailLoading } = useQuery<AdminWalletDetail>({
+    queryKey: [`/api/admin/wallet/${selectedCustomer?._id}`],
+    enabled: !!selectedCustomer,
+  });
+
+  const adjustMutation = useMutation({
+    mutationFn: (data: { type: "credit" | "debit"; amount: number; reason: string }) =>
+      apiRequest("PATCH", `/api/admin/wallet/${selectedCustomer?._id}`, data),
+    onSuccess: () => {
+      toast({ title: "Wallet updated", description: "Balance has been adjusted." });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/wallet/customers"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/wallet/${selectedCustomer?._id}`] });
+      setIsAdjustOpen(false);
+      setAdjustAmount("");
+      setAdjustReason("");
+    },
+    onError: (error: Error) => {
+      toast({ title: "Couldn't update wallet", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const createCouponMutation = useMutation({
+    mutationFn: (data: any) =>
+      apiRequest("POST", `/api/admin/wallet/${selectedCustomer?._id}/coupon`, data),
+    onSuccess: () => {
+      toast({ title: "Coupon created", description: "It stays hidden until you activate it." });
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/wallet/${selectedCustomer?._id}`] });
+      setIsCouponOpen(false);
+      setCouponForm({ code: "", description: "", discountType: "fixed", discountValue: "" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Couldn't create coupon", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const toggleCouponMutation = useMutation({
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
+      apiRequest("PATCH", `/api/admin/wallet/coupon/${id}`, { isActive }),
+    onSuccess: () => {
+      toast({ title: "Coupon updated" });
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/wallet/${selectedCustomer?._id}`] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Couldn't update coupon", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const deleteCouponMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/admin/wallet/coupon/${id}`),
+    onSuccess: () => {
+      toast({ title: "Coupon deleted" });
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/wallet/${selectedCustomer?._id}`] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Couldn't delete coupon", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const totalWalletValue = customers.reduce((sum, c) => sum + (c.walletBalance || 0), 0);
+
+  return (
+    <div className="space-y-6">
+      <SectionHeading
+        title="Customer wallets"
+        description="Adjust wallet balance for any customer and set coupon codes that appear on their wallet."
+      />
+
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-3">
+        <StatCard label="Total customers" value={customers.length} hint="With a wallet" icon={Users} />
+        <StatCard label="Total wallet value" value={`₹${totalWalletValue.toFixed(0)}`} hint="Across all customers" icon={Wallet} tone="positive" />
+        <StatCard label="Selected" value={selectedCustomer ? selectedCustomer.name : "—"} hint="Currently managing" icon={UserCheck} />
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-4">
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-slate-100 pb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <CardTitle className="text-base">Customers</CardTitle>
+              <div className="relative sm:w-56">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 h-4 w-4" />
+                <Input
+                  placeholder="Search name, email, phone"
+                  className="pl-9"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="max-h-[420px] overflow-y-auto">
+              {isLoading && <p className="px-4 py-10 text-center text-slate-400 text-sm">Loading customers…</p>}
+              {!isLoading && customers.length === 0 && (
+                <p className="px-4 py-10 text-center text-slate-400 text-sm">No customers found.</p>
+              )}
+              {customers.map((c) => (
+                <button
+                  key={c._id}
+                  onClick={() => setSelectedCustomer(c)}
+                  className={`w-full text-left px-4 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors ${
+                    selectedCustomer?._id === c._id ? "bg-red-50" : ""
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-slate-900">{c.name}</p>
+                      <p className="text-xs text-slate-500">{c.email}</p>
+                    </div>
+                    <Badge variant="secondary" className="flex items-center gap-1">
+                      <IndianRupee className="h-3 w-3" />
+                      {(c.walletBalance || 0).toFixed(0)}
+                    </Badge>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-slate-100 pb-4">
+            <CardTitle className="text-base">
+              {selectedCustomer ? selectedCustomer.name : "Select a customer"}
+            </CardTitle>
+            <CardDescription>
+              {selectedCustomer ? selectedCustomer.email : "Pick a customer from the list to manage their wallet."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-4">
+            {!selectedCustomer && (
+              <p className="text-sm text-slate-400 text-center py-10">No customer selected.</p>
+            )}
+
+            {selectedCustomer && (
+              <div className="space-y-5">
+                <div className="rounded-xl bg-slate-50 border border-slate-100 p-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-slate-500">Current balance</p>
+                    <p className="text-2xl font-bold text-slate-900 flex items-center gap-1">
+                      <IndianRupee className="h-5 w-5 text-slate-400" />
+                      {(detail?.customer?.walletBalance ?? selectedCustomer.walletBalance ?? 0).toFixed(2)}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      className="bg-emerald-600 hover:bg-emerald-700"
+                      onClick={() => {
+                        setAdjustType("credit");
+                        setIsAdjustOpen(true);
+                      }}
+                    >
+                      <PlusCircle className="w-4 h-4 mr-1" /> Add
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-rose-200 text-rose-600 hover:bg-rose-50"
+                      onClick={() => {
+                        setAdjustType("debit");
+                        setIsAdjustOpen(true);
+                      }}
+                    >
+                      <MinusCircle className="w-4 h-4 mr-1" /> Deduct
+                    </Button>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-semibold text-slate-900">Wallet coupons</p>
+                    <Button size="sm" variant="outline" onClick={() => setIsCouponOpen(true)}>
+                      <Plus className="w-3.5 h-3.5 mr-1" /> New coupon
+                    </Button>
+                  </div>
+                  {detailLoading && <p className="text-sm text-slate-400">Loading…</p>}
+                  {!detailLoading && (!detail?.coupons || detail.coupons.length === 0) && (
+                    <p className="text-sm text-slate-400 rounded-xl border border-dashed border-slate-200 p-4 text-center">
+                      No coupon set for this customer yet.
+                    </p>
+                  )}
+                  <div className="space-y-2">
+                    {detail?.coupons?.map((coupon) => (
+                      <div
+                        key={coupon._id}
+                        className="flex items-center justify-between rounded-xl border border-slate-200 p-3"
+                      >
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <code className="rounded bg-slate-100 px-2 py-1 font-mono text-xs font-semibold text-slate-700">
+                              {coupon.code}
+                            </code>
+                            <Badge variant={coupon.isActive ? "default" : "secondary"}>
+                              {coupon.isActive ? "Visible to customer" : "Hidden"}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-1">
+                            {coupon.discountType === "fixed" ? `₹${coupon.discountValue} off` : `${coupon.discountValue}% off`}
+                            {coupon.description ? ` — ${coupon.description}` : ""}
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              toggleCouponMutation.mutate({ id: coupon._id, isActive: !coupon.isActive })
+                            }
+                          >
+                            {coupon.isActive ? "Deactivate" : "Activate"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-rose-600 hover:bg-rose-50"
+                            onClick={() => deleteCouponMutation.mutate(coupon._id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {detail?.transactions && detail.transactions.length > 0 && (
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900 mb-2 flex items-center gap-2">
+                      <History className="w-4 h-4" /> Recent activity
+                    </p>
+                    <div className="space-y-1 max-h-40 overflow-y-auto">
+                      {detail.transactions.map((t) => (
+                        <div key={t._id} className="flex items-center justify-between text-xs text-slate-500 border-b border-slate-100 py-1.5">
+                          <span>
+                            {t.type === "credit" ? "+" : "-"}₹{t.amount} {t.reason ? `(${t.reason})` : ""}
+                          </span>
+                          <span>{t.createdAt ? format(new Date(t.createdAt), "MMM d, HH:mm") : ""}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Adjust balance dialog */}
+      <Dialog open={isAdjustOpen} onOpenChange={setIsAdjustOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{adjustType === "credit" ? "Add money to wallet" : "Deduct money from wallet"}</DialogTitle>
+            <DialogDescription>
+              {selectedCustomer?.name} — current balance ₹{(detail?.customer?.walletBalance ?? 0).toFixed(2)}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Amount (₹)</Label>
+              <Input
+                type="number"
+                min="1"
+                value={adjustAmount}
+                onChange={(e) => setAdjustAmount(e.target.value)}
+                placeholder="e.g. 100"
+              />
+            </div>
+            <div>
+              <Label>Reason (optional)</Label>
+              <Input
+                value={adjustReason}
+                onChange={(e) => setAdjustReason(e.target.value)}
+                placeholder="e.g. Refund, promo credit"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAdjustOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!adjustAmount || Number(adjustAmount) <= 0 || adjustMutation.isPending}
+              onClick={() =>
+                adjustMutation.mutate({
+                  type: adjustType,
+                  amount: Number(adjustAmount),
+                  reason: adjustReason,
+                })
+              }
+            >
+              {adjustMutation.isPending ? "Saving…" : "Confirm"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create wallet coupon dialog */}
+      <Dialog open={isCouponOpen} onOpenChange={setIsCouponOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New coupon for {selectedCustomer?.name}</DialogTitle>
+            <DialogDescription>
+              It's created hidden. Use "Activate" afterwards to make it show up on the customer's wallet.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Coupon code</Label>
+              <Input
+                value={couponForm.code}
+                onChange={(e) => setCouponForm({ ...couponForm, code: e.target.value.toUpperCase() })}
+                placeholder="e.g. WELCOME50"
+              />
+            </div>
+            <div>
+              <Label>Description (optional)</Label>
+              <Input
+                value={couponForm.description}
+                onChange={(e) => setCouponForm({ ...couponForm, description: e.target.value })}
+                placeholder="e.g. Loyalty reward"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Discount type</Label>
+                <Select
+                  value={couponForm.discountType}
+                  onValueChange={(v: "fixed" | "percentage") => setCouponForm({ ...couponForm, discountType: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fixed">Fixed (₹)</SelectItem>
+                    <SelectItem value="percentage">Percentage (%)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Value</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  value={couponForm.discountValue}
+                  onChange={(e) => setCouponForm({ ...couponForm, discountValue: e.target.value })}
+                  placeholder="e.g. 50"
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCouponOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!couponForm.code || !couponForm.discountValue || createCouponMutation.isPending}
+              onClick={() =>
+                createCouponMutation.mutate({
+                  ...couponForm,
+                  discountValue: Number(couponForm.discountValue),
+                })
+              }
+            >
+              {createCouponMutation.isPending ? "Creating…" : "Create coupon"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
 }
 
 function CouponManagement() {
@@ -1187,7 +1590,7 @@ export default function AdminPanel() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 sm:w-auto sm:inline-grid">
+          <TabsList className="grid w-full grid-cols-3 sm:w-auto sm:inline-grid">
             <TabsTrigger value="sellers" className="flex items-center gap-2">
               <ChefHat className="h-4 w-4" />
               Sellers
@@ -1195,6 +1598,10 @@ export default function AdminPanel() {
             <TabsTrigger value="coupons" className="flex items-center gap-2">
               <Tag className="h-4 w-4" />
               Coupons
+            </TabsTrigger>
+            <TabsTrigger value="wallets" className="flex items-center gap-2">
+              <Wallet className="h-4 w-4" />
+              Wallets
             </TabsTrigger>
           </TabsList>
 
@@ -1204,6 +1611,10 @@ export default function AdminPanel() {
 
           <TabsContent value="coupons">
             <CouponManagement />
+          </TabsContent>
+
+          <TabsContent value="wallets">
+            <WalletManagement />
           </TabsContent>
         </Tabs>
       </div>
