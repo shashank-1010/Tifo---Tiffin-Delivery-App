@@ -82,7 +82,7 @@ export const sendEmailSafely = async (emailFunction: () => Promise<any>, emailTy
   try {
     console.log(`📧 Attempting to send ${emailType}...`);
     const result = await emailFunction();
-    console.log(`✅ ${type} sent successfully`);
+    console.log(`✅ ${emailType} sent successfully`);
     return result;
   } catch (error) {
     console.error(`❌ Failed to send ${emailType}:`, error);
@@ -217,145 +217,120 @@ export async function sendBookingConfirmationToCustomer(
     const basePrice = subtotal - addOnsTotal - customizationsTotal;
 
     const mailOptions = {
-      from: process.env.EMAIL_USER || 'noreply@tiffinservice.com',
+      from: `"Tiffo" <${process.env.EMAIL_USER || 'noreply@tiffinservice.com'}>`,
       to: customerEmail,
-      subject: 'Tiffo - Booking Confirmation',
+      subject: `Order Confirmation - ${tiffinTitle}`,
       html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 2px solid #dc2626; border-radius: 10px; overflow: hidden;">
-          <div style="background: #dc2626; padding: 30px; text-align: center; color: white;">
-            <h1 style="margin: 0; font-size: 28px;">Tiffo</h1>
-            <p style="margin: 5px 0 0 0; opacity: 0.9;">Fresh Food Delivery</p>
+        <div style="font-family: Arial, Helvetica, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; color: #1f2937;">
+          <div style="background: #b91c1c; padding: 24px 30px; text-align: left;">
+            <h1 style="margin: 0; font-size: 22px; color: #ffffff; letter-spacing: 0.5px;">Tiffo</h1>
+            <p style="margin: 4px 0 0 0; color: #fecaca; font-size: 13px;">Fresh Food Delivery</p>
           </div>
-          
-          <div style="padding: 30px; background: white;">
-            <h2 style="color: #dc2626; margin-bottom: 20px; text-align: center;">Booking Confirmed! 🎉</h2>
-            
-            <p style="color: #4b5563; line-height: 1.6;">
-              Hello <strong>${customerName}</strong>,
-            </p>
-            
-            <p style="color: #4b5563; line-height: 1.6;">
-              Your booking has been confirmed. Here are your order details:
-            </p>
-            
-            <!-- Basic Order Info -->
-            <div style="background: #fef2f2; padding: 20px; border-radius: 8px; border: 1px solid #fecaca; margin: 20px 0;">
-              <h3 style="color: #dc2626; margin-top: 0; text-align: center;">Order Summary</h3>
-              <p><strong>Tiffin:</strong> ${tiffinTitle}</p>
-              <p><strong>Seller:</strong> ${sellerName}</p>
-              <p><strong>Contact:</strong> ${sellerPhone}</p>
-              <p><strong>Delivery Date:</strong> ${deliveryDate}</p>
-              <p><strong>Time Slot:</strong> ${slot}</p>
-              <p><strong>Quantity:</strong> ${quantity}</p>
-              
-              ${selectedDays && selectedDays.length > 0 ? `
-                <p><strong>Selected Days:</strong> ${selectedDays.join(', ')}</p>
-              ` : ''}
-            </div>
 
-            <!-- Add-ons Section -->
+          <div style="padding: 30px; background: #ffffff;">
+            <h2 style="color: #111827; margin: 0 0 6px 0; font-size: 19px;">Your order is confirmed</h2>
+            <p style="color: #4b5563; line-height: 1.6; margin: 0 0 20px 0;">
+              Hello ${customerName}, thank you for your order. Your booking details are below.
+            </p>
+
+            <!-- Order Summary -->
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; border: 1px solid #e5e7eb; border-radius: 4px; overflow: hidden;">
+              <tr style="background: #f9fafb;">
+                <td colspan="2" style="padding: 10px 14px; font-weight: bold; color: #111827; border-bottom: 1px solid #e5e7eb; font-size: 14px;">Order Summary</td>
+              </tr>
+              <tr><td style="padding: 8px 14px; color: #6b7280; width: 40%;">Item</td><td style="padding: 8px 14px;">${tiffinTitle}</td></tr>
+              <tr><td style="padding: 8px 14px; color: #6b7280;">Seller</td><td style="padding: 8px 14px;">${sellerName}</td></tr>
+              <tr><td style="padding: 8px 14px; color: #6b7280;">Seller Contact</td><td style="padding: 8px 14px;">${sellerPhone}</td></tr>
+              <tr><td style="padding: 8px 14px; color: #6b7280;">Delivery Date</td><td style="padding: 8px 14px;">${deliveryDate}</td></tr>
+              <tr><td style="padding: 8px 14px; color: #6b7280;">Time Slot</td><td style="padding: 8px 14px;">${slot}</td></tr>
+              <tr><td style="padding: 8px 14px; color: #6b7280;">Quantity</td><td style="padding: 8px 14px;">${quantity}</td></tr>
+              ${selectedDays && selectedDays.length > 0 ? `
+              <tr><td style="padding: 8px 14px; color: #6b7280;">Selected Days</td><td style="padding: 8px 14px;">${selectedDays.join(', ')}</td></tr>
+              ` : ''}
+            </table>
+
             ${addOns && addOns.length > 0 ? `
-            <div style="background: #f0fdf4; padding: 18px; border-radius: 8px; border: 1px solid #bbf7d0; margin: 15px 0;">
-              <h4 style="color: #166534; margin-top: 0;">➕ Add-ons Selected</h4>
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; border: 1px solid #e5e7eb; border-radius: 4px; overflow: hidden;">
+              <tr style="background: #f9fafb;">
+                <td colspan="2" style="padding: 10px 14px; font-weight: bold; color: #111827; border-bottom: 1px solid #e5e7eb; font-size: 14px;">Add-ons</td>
+              </tr>
               ${addOns.map(addOn => `
-                <div style="display: flex; justify-content: space-between; margin: 8px 0; padding: 8px; background: white; border-radius: 6px;">
-                  <span>${addOn.name} × ${addOn.quantity}</span>
-                  <span style="font-weight: bold;">₹${addOn.price * addOn.quantity}</span>
-                </div>
+              <tr>
+                <td style="padding: 8px 14px; color: #374151;">${addOn.name} x ${addOn.quantity}</td>
+                <td style="padding: 8px 14px; text-align: right;">Rs. ${addOn.price * addOn.quantity}</td>
+              </tr>
               `).join('')}
-              <div style="display: flex; justify-content: space-between; margin-top: 10px; padding-top: 10px; border-top: 1px dashed #bbf7d0; font-weight: bold;">
-                <span>Total Add-ons</span>
-                <span>₹${addOnsTotal}</span>
-              </div>
-            </div>
+              <tr>
+                <td style="padding: 8px 14px; font-weight: bold; border-top: 1px solid #e5e7eb;">Add-ons Total</td>
+                <td style="padding: 8px 14px; text-align: right; font-weight: bold; border-top: 1px solid #e5e7eb;">Rs. ${addOnsTotal}</td>
+              </tr>
+            </table>
             ` : ''}
 
-            <!-- Weekly Customizations Section -->
             ${weeklyCustomizations && weeklyCustomizations.length > 0 ? `
-            <div style="background: #e0f2fe; padding: 18px; border-radius: 8px; border: 1px solid #7dd3fc; margin: 15px 0;">
-              <h4 style="color: #0c4a6e; margin-top: 0;">⚙️ Weekly Customizations</h4>
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; border: 1px solid #e5e7eb; border-radius: 4px; overflow: hidden;">
+              <tr style="background: #f9fafb;">
+                <td colspan="2" style="padding: 10px 14px; font-weight: bold; color: #111827; border-bottom: 1px solid #e5e7eb; font-size: 14px;">Weekly Customizations</td>
+              </tr>
               ${weeklyCustomizations.map(custom => {
                 const applicableDays = custom.days.filter((day: string) => selectedDays.includes(day));
                 const totalCost = custom.price * applicableDays.length;
                 return `
-                  <div style="margin: 10px 0; padding: 10px; background: white; border-radius: 6px;">
-                    <div style="display: flex; justify-content: space-between;">
-                      <span><strong>${custom.name}</strong></span>
-                      <span style="font-weight: bold;">₹${totalCost}</span>
-                    </div>
-                    <div style="font-size: 13px; color: #64748b; margin-top: 4px;">
-                      ${custom.description} • Applied to: ${applicableDays.join(', ')}
-                    </div>
-                  </div>
+                <tr>
+                  <td style="padding: 8px 14px; color: #374151;">
+                    <div><strong>${custom.name}</strong></div>
+                    <div style="font-size: 12px; color: #6b7280;">${custom.description} - Applied to: ${applicableDays.join(', ')}</div>
+                  </td>
+                  <td style="padding: 8px 14px; text-align: right; vertical-align: top;">Rs. ${totalCost}</td>
+                </tr>
                 `;
               }).join('')}
-              <div style="display: flex; justify-content: space-between; margin-top: 10px; padding-top: 10px; border-top: 1px dashed #7dd3fc; font-weight: bold;">
-                <span>Total Customizations</span>
-                <span>₹${customizationsTotal}</span>
-              </div>
-            </div>
+              <tr>
+                <td style="padding: 8px 14px; font-weight: bold; border-top: 1px solid #e5e7eb;">Customizations Total</td>
+                <td style="padding: 8px 14px; text-align: right; font-weight: bold; border-top: 1px solid #e5e7eb;">Rs. ${customizationsTotal}</td>
+              </tr>
+            </table>
             ` : ''}
 
-            <!-- Special Instructions -->
             ${customization ? `
-            <div style="background: #fef3c7; padding: 15px; border-radius: 8px; border: 1px solid #f59e0b; margin: 15px 0;">
-              <h4 style="color: #92400e; margin-top: 0;">📝 Special Instructions</h4>
-              <p style="margin: 0; font-style: italic; color: #92400e;">"${customization}"</p>
+            <div style="background: #f9fafb; padding: 14px; border-radius: 4px; border: 1px solid #e5e7eb; margin-bottom: 20px;">
+              <div style="font-weight: bold; color: #111827; margin-bottom: 4px; font-size: 13px;">Special Instructions</div>
+              <div style="color: #4b5563; font-style: italic; font-size: 14px;">"${customization}"</div>
             </div>
             ` : ''}
 
             <!-- Price Breakdown -->
-            <div style="background: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; margin: 20px 0;">
-              <h4 style="color: #dc2626; margin-top: 0; text-align: center;">💰 Price Breakdown</h4>
-              
-              <div style="display: flex; justify-content: space-between; margin: 10px 0; padding: 8px 0; border-bottom: 1px dashed #e2e8f0;">
-                <span>Base Price</span>
-                <span>₹${basePrice}</span>
-              </div>
-              
-              ${addOnsTotal > 0 ? `
-              <div style="display: flex; justify-content: space-between; margin: 10px 0; padding: 8px 0; border-bottom: 1px dashed #e2e8f0;">
-                <span>Add-ons</span>
-                <span style="color: #16a34a;">+ ₹${addOnsTotal}</span>
-              </div>
-              ` : ''}
-              
-              ${customizationsTotal > 0 ? `
-              <div style="display: flex; justify-content: space-between; margin: 10px 0; padding: 8px 0; border-bottom: 1px dashed #e2e8f0;">
-                <span>Customizations</span>
-                <span style="color: #0284c7;">+ ₹${customizationsTotal}</span>
-              </div>
-              ` : ''}
-              
-              ${discountAmount > 0 ? `
-              <div style="display: flex; justify-content: space-between; margin: 10px 0; padding: 8px 0; border-bottom: 1px dashed #e2e8f0;">
-                <span>Discount ${couponCode ? `(${couponCode})` : ''}</span>
-                <span style="color: #dc2626;">- ₹${discountAmount}</span>
-              </div>
-              ` : ''}
-              
-              <div style="display: flex; justify-content: space-between; margin-top: 15px; padding-top: 15px; border-top: 2px solid #dc2626; font-size: 18px; font-weight: bold;">
-                <span>Total Amount</span>
-                <span style="color: #dc2626;">₹${totalPrice}</span>
-              </div>
-            </div>
-            
-            <p style="color: #4b5563; line-height: 1.6; text-align: center;">
-              Your food will be delivered fresh and hot. Thank you for choosing Tiffo!
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; border: 1px solid #e5e7eb; border-radius: 4px; overflow: hidden;">
+              <tr style="background: #f9fafb;">
+                <td colspan="2" style="padding: 10px 14px; font-weight: bold; color: #111827; border-bottom: 1px solid #e5e7eb; font-size: 14px;">Price Breakdown</td>
+              </tr>
+              <tr><td style="padding: 8px 14px; color: #374151;">Base Price</td><td style="padding: 8px 14px; text-align: right;">Rs. ${basePrice}</td></tr>
+              ${addOnsTotal > 0 ? `<tr><td style="padding: 8px 14px; color: #374151;">Add-ons</td><td style="padding: 8px 14px; text-align: right;">+ Rs. ${addOnsTotal}</td></tr>` : ''}
+              ${customizationsTotal > 0 ? `<tr><td style="padding: 8px 14px; color: #374151;">Customizations</td><td style="padding: 8px 14px; text-align: right;">+ Rs. ${customizationsTotal}</td></tr>` : ''}
+              ${discountAmount > 0 ? `<tr><td style="padding: 8px 14px; color: #374151;">Discount${couponCode ? ` (${couponCode})` : ''}</td><td style="padding: 8px 14px; text-align: right; color: #b91c1c;">- Rs. ${discountAmount}</td></tr>` : ''}
+              <tr>
+                <td style="padding: 12px 14px; font-weight: bold; font-size: 16px; border-top: 2px solid #111827;">Total Amount</td>
+                <td style="padding: 12px 14px; text-align: right; font-weight: bold; font-size: 16px; border-top: 2px solid #111827; color: #b91c1c;">Rs. ${totalPrice}</td>
+              </tr>
+            </table>
+
+            <p style="color: #6b7280; line-height: 1.6; font-size: 13px; margin: 0;">
+              Your food will be prepared fresh and delivered on time. If you have any questions about this order, please contact the seller directly using the details above.
             </p>
           </div>
-          
-          <div style="background: #dc2626; padding: 20px; text-align: center; color: white; font-size: 14px;">
-            <p style="margin: 0;">© ${new Date().getFullYear()} Tiffo. All rights reserved.</p>
+
+          <div style="background: #f9fafb; padding: 16px 30px; text-align: left; color: #9ca3af; font-size: 12px; border-top: 1px solid #e5e7eb;">
+            <p style="margin: 0;">This is an automated message from Tiffo. Please do not reply directly to this email.</p>
+            <p style="margin: 4px 0 0 0;">&copy; ${new Date().getFullYear()} Tiffo. All rights reserved.</p>
           </div>
         </div>
       `,
     };
 
     await transporter.sendMail(mailOptions);
-    console.log(`✅ Booking confirmation sent to ${customerEmail}`);
+    console.log(`Booking confirmation sent to ${customerEmail}`);
   } catch (error) {
-    console.error('❌ Error sending booking confirmation:', error);
+    console.error('Error sending booking confirmation:', error);
     throw new Error('Failed to send booking confirmation email');
   }
 }
@@ -401,148 +376,129 @@ export async function sendOrderNotificationToSeller(
     const basePrice = subtotal - addOnsTotal - customizationsTotal;
 
     const mailOptions = {
-      from: process.env.EMAIL_USER || 'noreply@tiffinservice.com',
+      from: `"Tiffo" <${process.env.EMAIL_USER || 'noreply@tiffinservice.com'}>`,
       to: sellerEmail,
-      subject: `🎉 New Order #${orderId} - ${tiffinTitle} - ₹${totalPrice}`,
+      subject: `New Order #${orderId} - ${tiffinTitle} - Rs. ${totalPrice}`,
       html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 2px solid #dc2626; border-radius: 10px; overflow: hidden;">
+        <div style="font-family: Arial, Helvetica, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; color: #1f2937;">
           <!-- Header -->
-          <div style="background: #dc2626; padding: 30px; text-align: center; color: white;">
-            <h1 style="margin: 0; font-size: 28px;">Tiffo</h1>
-            <p style="margin: 5px 0 0 0; opacity: 0.9;">Fresh Food Delivery</p>
+          <div style="background: #b91c1c; padding: 24px 30px; text-align: left;">
+            <h1 style="margin: 0; font-size: 22px; color: #ffffff; letter-spacing: 0.5px;">Tiffo</h1>
+            <p style="margin: 4px 0 0 0; color: #fecaca; font-size: 13px;">Fresh Food Delivery</p>
           </div>
-          
-          <!-- Content -->
-          <div style="padding: 25px; background: white;">
-            <h2 style="color: #dc2626; text-align: center; margin-bottom: 25px;">New Order Received! 🎉</h2>
-            
-            <!-- Order Summary -->
-            <div style="background: #fef2f2; padding: 20px; border-radius: 8px; border: 1px solid #fecaca; margin-bottom: 20px;">
-              <h3 style="color: #dc2626; margin-top: 0; text-align: center;">Order #${orderId}</h3>
-              <p><strong>Tiffin:</strong> ${tiffinTitle}</p>
-              <p><strong>Type:</strong> ${bookingType}</p>
-              <p><strong>Quantity:</strong> ${quantity}</p>
-              <p><strong>Delivery:</strong> ${deliveryDate} at ${slot}</p>
-              
-              ${selectedDays && selectedDays.length > 0 ? `
-                <p><strong>Selected Days:</strong> ${selectedDays.join(', ')}</p>
-              ` : ''}
-            </div>
-            
-            <!-- Customer Info -->
-            <div style="background: #f8fafc; padding: 18px; border-radius: 8px; border: 1px solid #e5e7eb; margin-bottom: 20px;">
-              <h4 style="color: #dc2626; margin-top: 0;">👤 Customer Details</h4>
-              <p><strong>Name:</strong> ${customerName}</p>
-              <p><strong>Phone:</strong> ${customerPhone}</p>
-              <p><strong>Email:</strong> ${customerEmail}</p>
-              <p><strong>Address:</strong> ${deliveryAddress}, ${customerCity}</p>
-            </div>
 
-            <!-- Add-ons for Seller -->
+          <!-- Content -->
+          <div style="padding: 30px; background: #ffffff;">
+            <h2 style="color: #111827; margin: 0 0 6px 0; font-size: 19px;">New order received</h2>
+            <p style="color: #4b5563; line-height: 1.6; margin: 0 0 20px 0;">
+              You have received a new order. Please review the details below and prepare accordingly.
+            </p>
+
+            <!-- Order Summary -->
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; border: 1px solid #e5e7eb; border-radius: 4px; overflow: hidden;">
+              <tr style="background: #f9fafb;">
+                <td colspan="2" style="padding: 10px 14px; font-weight: bold; color: #111827; border-bottom: 1px solid #e5e7eb; font-size: 14px;">Order #${orderId}</td>
+              </tr>
+              <tr><td style="padding: 8px 14px; color: #6b7280; width: 40%;">Item</td><td style="padding: 8px 14px;">${tiffinTitle}</td></tr>
+              <tr><td style="padding: 8px 14px; color: #6b7280;">Type</td><td style="padding: 8px 14px;">${bookingType}</td></tr>
+              <tr><td style="padding: 8px 14px; color: #6b7280;">Quantity</td><td style="padding: 8px 14px;">${quantity}</td></tr>
+              <tr><td style="padding: 8px 14px; color: #6b7280;">Delivery</td><td style="padding: 8px 14px;">${deliveryDate} at ${slot}</td></tr>
+              ${selectedDays && selectedDays.length > 0 ? `
+              <tr><td style="padding: 8px 14px; color: #6b7280;">Selected Days</td><td style="padding: 8px 14px;">${selectedDays.join(', ')}</td></tr>
+              ` : ''}
+            </table>
+
+            <!-- Customer Info -->
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; border: 1px solid #e5e7eb; border-radius: 4px; overflow: hidden;">
+              <tr style="background: #f9fafb;">
+                <td colspan="2" style="padding: 10px 14px; font-weight: bold; color: #111827; border-bottom: 1px solid #e5e7eb; font-size: 14px;">Customer Details</td>
+              </tr>
+              <tr><td style="padding: 8px 14px; color: #6b7280; width: 40%;">Name</td><td style="padding: 8px 14px;">${customerName}</td></tr>
+              <tr><td style="padding: 8px 14px; color: #6b7280;">Phone</td><td style="padding: 8px 14px;">${customerPhone}</td></tr>
+              <tr><td style="padding: 8px 14px; color: #6b7280;">Email</td><td style="padding: 8px 14px;">${customerEmail}</td></tr>
+              <tr><td style="padding: 8px 14px; color: #6b7280;">Address</td><td style="padding: 8px 14px;">${deliveryAddress}, ${customerCity}</td></tr>
+            </table>
+
             ${addOns && addOns.length > 0 ? `
-            <div style="background: #f0fdf4; padding: 18px; border-radius: 8px; border: 1px solid #bbf7d0; margin-bottom: 15px;">
-              <h4 style="color: #166534; margin-top: 0;">➕ Add-ons Requested</h4>
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; border: 1px solid #e5e7eb; border-radius: 4px; overflow: hidden;">
+              <tr style="background: #f9fafb;">
+                <td colspan="2" style="padding: 10px 14px; font-weight: bold; color: #111827; border-bottom: 1px solid #e5e7eb; font-size: 14px;">Add-ons Requested</td>
+              </tr>
               ${addOns.map((addOn: any) => `
-                <div style="display: flex; justify-content: space-between; margin: 8px 0; padding: 8px; background: white; border-radius: 6px;">
-                  <span>${addOn.name} × ${addOn.quantity}</span>
-                  <span style="font-weight: bold;">₹${addOn.price * addOn.quantity}</span>
-                </div>
+              <tr>
+                <td style="padding: 8px 14px; color: #374151;">${addOn.name} x ${addOn.quantity}</td>
+                <td style="padding: 8px 14px; text-align: right;">Rs. ${addOn.price * addOn.quantity}</td>
+              </tr>
               `).join('')}
-            </div>
+            </table>
             ` : ''}
 
-            <!-- Customizations for Seller -->
             ${weeklyCustomizations && weeklyCustomizations.length > 0 ? `
-            <div style="background: #e0f2fe; padding: 18px; border-radius: 8px; border: 1px solid #7dd3fc; margin-bottom: 15px;">
-              <h4 style="color: #0c4a6e; margin-top: 0;">⚙️ Customizations Requested</h4>
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; border: 1px solid #e5e7eb; border-radius: 4px; overflow: hidden;">
+              <tr style="background: #f9fafb;">
+                <td colspan="2" style="padding: 10px 14px; font-weight: bold; color: #111827; border-bottom: 1px solid #e5e7eb; font-size: 14px;">Customizations Requested</td>
+              </tr>
               ${weeklyCustomizations.map((custom: any) => {
                 const applicableDays = custom.days.filter((day: string) => selectedDays.includes(day));
                 const totalCost = custom.price * applicableDays.length;
                 return `
-                  <div style="margin: 10px 0; padding: 10px; background: white; border-radius: 6px;">
-                    <div style="display: flex; justify-content: space-between;">
-                      <span><strong>${custom.name}</strong></span>
-                      <span style="font-weight: bold;">₹${totalCost}</span>
-                    </div>
-                    <div style="font-size: 13px; color: #64748b; margin-top: 4px;">
-                      ${custom.description} • Days: ${applicableDays.join(', ')}
-                    </div>
-                  </div>
+                <tr>
+                  <td style="padding: 8px 14px; color: #374151;">
+                    <div><strong>${custom.name}</strong></div>
+                    <div style="font-size: 12px; color: #6b7280;">${custom.description} - Days: ${applicableDays.join(', ')}</div>
+                  </td>
+                  <td style="padding: 8px 14px; text-align: right; vertical-align: top;">Rs. ${totalCost}</td>
+                </tr>
                 `;
               }).join('')}
-            </div>
+            </table>
             ` : ''}
 
-            <!-- Special Instructions -->
             ${customization ? `
-            <div style="background: #fef3c7; padding: 15px; border-radius: 8px; border: 1px solid #f59e0b; margin-bottom: 20px;">
-              <h4 style="color: #92400e; margin-top: 0;">📝 Special Instructions</h4>
-              <p style="margin: 0; font-style: italic; color: #92400e;">"${customization}"</p>
+            <div style="background: #f9fafb; padding: 14px; border-radius: 4px; border: 1px solid #e5e7eb; margin-bottom: 20px;">
+              <div style="font-weight: bold; color: #111827; margin-bottom: 4px; font-size: 13px;">Special Instructions</div>
+              <div style="color: #4b5563; font-style: italic; font-size: 14px;">"${customization}"</div>
             </div>
             ` : ''}
 
             <!-- Price Breakdown for Seller -->
-            <div style="background: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 20px;">
-              <h4 style="color: #dc2626; margin-top: 0; text-align: center;">💰 Order Value</h4>
-              
-              <div style="display: flex; justify-content: space-between; margin: 8px 0; padding: 6px 0;">
-                <span>Base Price</span>
-                <span>₹${basePrice}</span>
-              </div>
-              
-              ${addOnsTotal > 0 ? `
-              <div style="display: flex; justify-content: space-between; margin: 8px 0; padding: 6px 0;">
-                <span>Add-ons</span>
-                <span style="color: #16a34a;">+ ₹${addOnsTotal}</span>
-              </div>
-              ` : ''}
-              
-              ${customizationsTotal > 0 ? `
-              <div style="display: flex; justify-content: space-between; margin: 8px 0; padding: 6px 0;">
-                <span>Customizations</span>
-                <span style="color: #0284c7;">+ ₹${customizationsTotal}</span>
-              </div>
-              ` : ''}
-              
-              <div style="display: flex; justify-content: space-between; margin: 8px 0; padding: 6px 0; border-top: 1px dashed #e2e8f0;">
-                <span><strong>Subtotal</strong></span>
-                <span><strong>₹${subtotal}</strong></span>
-              </div>
-              
-              ${discountAmount > 0 ? `
-              <div style="display: flex; justify-content: space-between; margin: 8px 0; padding: 6px 0;">
-                <span>Customer Discount ${couponCode ? `(${couponCode})` : ''}</span>
-                <span style="color: #dc2626;">- ₹${discountAmount}</span>
-              </div>
-              ` : ''}
-              
-              <div style="display: flex; justify-content: space-between; margin-top: 12px; padding-top: 12px; border-top: 2px solid #dc2626; font-size: 18px; font-weight: bold;">
-                <span>Final Amount</span>
-                <span style="color: #dc2626;">₹${totalPrice}</span>
-              </div>
-            </div>
-            
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; border: 1px solid #e5e7eb; border-radius: 4px; overflow: hidden;">
+              <tr style="background: #f9fafb;">
+                <td colspan="2" style="padding: 10px 14px; font-weight: bold; color: #111827; border-bottom: 1px solid #e5e7eb; font-size: 14px;">Order Value</td>
+              </tr>
+              <tr><td style="padding: 8px 14px; color: #374151;">Base Price</td><td style="padding: 8px 14px; text-align: right;">Rs. ${basePrice}</td></tr>
+              ${addOnsTotal > 0 ? `<tr><td style="padding: 8px 14px; color: #374151;">Add-ons</td><td style="padding: 8px 14px; text-align: right;">+ Rs. ${addOnsTotal}</td></tr>` : ''}
+              ${customizationsTotal > 0 ? `<tr><td style="padding: 8px 14px; color: #374151;">Customizations</td><td style="padding: 8px 14px; text-align: right;">+ Rs. ${customizationsTotal}</td></tr>` : ''}
+              <tr><td style="padding: 8px 14px; font-weight: bold; border-top: 1px dashed #e5e7eb;">Subtotal</td><td style="padding: 8px 14px; text-align: right; font-weight: bold; border-top: 1px dashed #e5e7eb;">Rs. ${subtotal}</td></tr>
+              ${discountAmount > 0 ? `<tr><td style="padding: 8px 14px; color: #374151;">Customer Discount${couponCode ? ` (${couponCode})` : ''}</td><td style="padding: 8px 14px; text-align: right; color: #b91c1c;">- Rs. ${discountAmount}</td></tr>` : ''}
+              <tr>
+                <td style="padding: 12px 14px; font-weight: bold; font-size: 16px; border-top: 2px solid #111827;">Final Amount</td>
+                <td style="padding: 12px 14px; text-align: right; font-weight: bold; font-size: 16px; border-top: 2px solid #111827; color: #b91c1c;">Rs. ${totalPrice}</td>
+              </tr>
+            </table>
+
             <!-- CTA Button -->
-            <div style="text-align: center; margin: 25px 0;">
-              <a href="${sellerDashboardLink}" style="background: #dc2626; color: white; padding: 14px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
-                🚀 Manage Order in Dashboard
+            <div style="text-align: left; margin: 10px 0 0 0;">
+              <a href="${sellerDashboardLink}" style="background: #b91c1c; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; display: inline-block; font-size: 14px;">
+                Manage Order in Dashboard
               </a>
             </div>
           </div>
-          
+
           <!-- Footer -->
-          <div style="background: #dc2626; padding: 20px; text-align: center; color: white; font-size: 14px;">
-            <p style="margin: 0;">© ${new Date().getFullYear()} Tiffo. All rights reserved.</p>
+          <div style="background: #f9fafb; padding: 16px 30px; text-align: left; color: #9ca3af; font-size: 12px; border-top: 1px solid #e5e7eb;">
+            <p style="margin: 0;">This is an automated message from Tiffo. Please do not reply directly to this email.</p>
+            <p style="margin: 4px 0 0 0;">&copy; ${new Date().getFullYear()} Tiffo. All rights reserved.</p>
           </div>
         </div>
       `,
     };
 
     const result = await transporter.sendMail(mailOptions);
-    console.log('✅ Professional email sent successfully to:', sellerEmail);
+    console.log('Order notification email sent successfully to:', sellerEmail);
     return result;
   } catch (error) {
-    console.error('❌ Email sending failed:', error);
+    console.error('Email sending failed:', error);
     return null;
   }
 }
@@ -701,10 +657,62 @@ export async function sendSellerStatusUpdate(
   }
 }
 
+// Send a simple order status update to the customer (e.g. Confirmed / Delivered)
+export async function sendOrderStatusUpdateToCustomer(
+  customerEmail: string,
+  customerName: string,
+  tiffinTitle: string,
+  orderId: string,
+  status: string
+): Promise<void> {
+  try {
+    const mailOptions = {
+      from: `"Tiffo" <${process.env.EMAIL_USER || 'noreply@tiffinservice.com'}>`,
+      to: customerEmail,
+      subject: `Order Update - #${orderId} is now ${status}`,
+      html: `
+        <div style="font-family: Arial, Helvetica, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; color: #1f2937;">
+          <div style="background: #b91c1c; padding: 24px 30px; text-align: left;">
+            <h1 style="margin: 0; font-size: 22px; color: #ffffff; letter-spacing: 0.5px;">Tiffo</h1>
+            <p style="margin: 4px 0 0 0; color: #fecaca; font-size: 13px;">Fresh Food Delivery</p>
+          </div>
+
+          <div style="padding: 30px; background: #ffffff;">
+            <h2 style="color: #111827; margin: 0 0 6px 0; font-size: 19px;">Order status updated</h2>
+            <p style="color: #4b5563; line-height: 1.6; margin: 0 0 20px 0;">
+              Hello ${customerName}, there is an update on your order.
+            </p>
+
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px; border: 1px solid #e5e7eb; border-radius: 4px; overflow: hidden;">
+              <tr><td style="padding: 8px 14px; color: #6b7280; width: 40%;">Order</td><td style="padding: 8px 14px;">#${orderId} - ${tiffinTitle}</td></tr>
+              <tr>
+                <td style="padding: 8px 14px; color: #6b7280; border-top: 1px solid #e5e7eb;">Status</td>
+                <td style="padding: 8px 14px; font-weight: bold; border-top: 1px solid #e5e7eb; color: #b91c1c;">${status}</td>
+              </tr>
+            </table>
+          </div>
+
+          <div style="background: #f9fafb; padding: 16px 30px; text-align: left; color: #9ca3af; font-size: 12px; border-top: 1px solid #e5e7eb;">
+            <p style="margin: 0;">This is an automated message from Tiffo. Please do not reply directly to this email.</p>
+            <p style="margin: 4px 0 0 0;">&copy; ${new Date().getFullYear()} Tiffo. All rights reserved.</p>
+          </div>
+        </div>
+      `,
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log(`Order status update sent to ${customerEmail}`);
+  } catch (error: any) {
+    console.error('Error sending order status update:', error.message);
+  }
+}
+
 export default {
   sendPasswordResetOTP,
   sendBookingConfirmationToCustomer,
   sendOrderNotificationToSeller,
+  sendOrderCancellationToSeller,
+  sendOrderStatusUpdateToCustomer,
   sendSellerStatusUpdate,
   sendEmailSafely,
   testEmailSending

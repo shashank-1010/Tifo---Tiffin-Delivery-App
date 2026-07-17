@@ -1,60 +1,91 @@
 // src/components/tiffin-detail.tsx
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useParams, useLocation } from "wouter";
-import { Navbar } from "@/components/navbar";
+import { useParams, useLocation, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 import { queryClient } from "@/lib/queryClient";
-import { ChefHat, Clock, MapPin, Star, UtensilsCrossed, Users, CheckCircle2, Plus, Minus, Scan, Calendar, IndianRupee, CreditCard , Wallet ,  ArrowLeft, Tag, X } from "lucide-react";
-import { type Tiffin, type Seller, type WeeklyCustomization, type Review, type AddOn, type TiffinWithSeller } from "@shared/schema";
-import { Link } from "wouter";
+import {
+  ChefHat,
+  Clock,
+  MapPin,
+  UtensilsCrossed,
+  CheckCircle2,
+  Plus,
+  Minus,
+  Calendar,
+  IndianRupee,
+  CreditCard,
+  Wallet,
+  ArrowLeft,
+  Tag,
+  X,
+} from "lucide-react";
+import type { WeeklyCustomization, Review, AddOn, TiffinWithSeller } from "@shared/schema";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-const TIME_SLOTS = [
-  "6:00 AM - 7:00 AM",
-  "7:00 AM - 8:00 AM", 
-  "8:00 AM - 9:00 AM",
-  "9:00 AM - 10:00 AM",
-  "10:00 AM - 11:00 AM",
-  "11:00 AM - 12:00 PM",
-  "12:00 PM - 1:00 PM",
-  "1:00 PM - 2:00 PM",
-  "2:00 PM - 3:00 PM",
-  "3:00 PM - 4:00 PM",
-  "4:00 PM - 5:00 PM",
-  "5:00 PM - 6:00 PM",
-  "6:00 PM - 7:00 PM",
-  "7:00 PM - 8:00 PM",
-  "8:00 PM - 9:00 PM",
-  "9:00 PM - 10:00 PM"
-];
+
+const PREDEFINED_OFFERS = [
+  {
+    code: "FIRST100",
+    title: "Flat ₹44 Off on All Orders",
+    subtitle: "Instant discount on minimum order value",
+    tag: "FLAT ₹44 OFF",
+  },
+  {
+    code: "FIRST200",
+    title: "10% Off on First Order",
+    subtitle: "Special welcome discount for new customers",
+    tag: "10% OFF",
+  },
+  {
+    code: "SAVE30",
+    title: "30% Off on First Order",
+    subtitle: "Enjoy a special discount as a limited-time reward",
+    tag: "30% OFF",
+  },
+  {
+    code: "FREEDEL",
+    title: "FREE Delivery on Your Order",
+    subtitle: "No delivery charges on your order",
+    tag: "FREE DELIVERY",
+  },
+] as const;
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+type BookingType = "single" | "trial" | "weekly" | "monthly";
+type PaymentMethod = "cod" | "upi";
 
 interface BookingData {
   tiffinId: string;
   date: string;
   slot: string;
-  paymentMethod: "cod" | "upi"; // ✅ NAYA FIELD ADD KARO
+  paymentMethod: PaymentMethod;
   quantity: number;
   totalPrice: number;
-  bookingType: "single" | "trial" | "weekly" | "monthly";
-  weeklyCustomizations?: Array<{
-    name: string;
-    price: number;
-    days: string[];
-  }>;
-  addOns?: Array<{
-    name: string;
-    price: number;
-    quantity: number;
-  }>;
+  bookingType: BookingType;
+  weeklyCustomizations?: Array<{ name: string; price: number; days: string[] }>;
+  addOns?: Array<{ name: string; price: number; quantity: number }>;
   selectedDays?: string[];
   customization?: string;
   couponCode?: string;
@@ -93,9 +124,13 @@ interface PriceCalculation {
   couponCode?: string;
 }
 
-const apiRequest = async (method: string, url: string, data?: any) => {
+// ---------------------------------------------------------------------------
+// API helper
+// ---------------------------------------------------------------------------
+
+async function apiRequest(method: string, url: string, data?: unknown) {
   const token = localStorage.getItem("token");
-  
+
   const response = await fetch(url, {
     method,
     headers: {
@@ -106,257 +141,577 @@ const apiRequest = async (method: string, url: string, data?: any) => {
   });
 
   if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.message || `Request failed (${response.status})`);
   }
 
-  return await response.json();
-};
+  return response.json();
+}
 
-// Google Maps URL generator function
-const getGoogleMapsUrl = (address: string, city: string) => {
+// ---------------------------------------------------------------------------
+// Small pure helpers
+// ---------------------------------------------------------------------------
+
+function getGoogleMapsUrl(address: string, city: string) {
   const query = encodeURIComponent(`${address}, ${city}`);
   return `https://www.google.com/maps/search/?api=1&query=${query}`;
-};
+}
 
-// Delivery charge calculation function
-const calculateDeliveryCharge = (serviceType: string, bookingType: string): number => {
-  // Normal meal service - always charge delivery
-  if (serviceType === "meal") {
-    return 19;
-  }
-  
-  // Tiffin service - charge only for trial and single, not for weekly/monthly
+function calculateDeliveryCharge(serviceType: string, bookingType: BookingType): number {
+  if (serviceType === "meal") return 19;
+
   if (serviceType === "tiffin") {
-    if (bookingType === "trial" || bookingType === "single") {
-      return 19;
-    }
-    // Weekly and monthly plans - no delivery charge
-    return 0;
+    if (bookingType === "trial" || bookingType === "single") return 19;
+    return 0; // weekly / monthly: free delivery
   }
-  
-  // Default delivery charge
-  return 19;
-};
 
-// Coupon Input Component
-function CouponInput({ 
-  onCouponApplied, 
-  onCouponRemoved, 
-  totalAmount 
-}: { 
-  onCouponApplied: (coupon: CouponValidation) => void;
-  onCouponRemoved: () => void;
-  totalAmount: number;
-}) {
+  return 19;
+}
+
+function currency(amount: number) {
+  return `₹${amount}`;
+}
+
+// ---------------------------------------------------------------------------
+// Coupon section (input + predefined offers), lifted state, shared logic
+// ---------------------------------------------------------------------------
+
+function useCoupon(totalAmount: number) {
   const { toast } = useToast();
-  const [couponCode, setCouponCode] = useState("");
   const [appliedCoupon, setAppliedCoupon] = useState<CouponValidation | null>(null);
-  const [isApplying, setIsApplying] = useState(false);
 
   const validateMutation = useMutation({
-    mutationFn: (data: { couponCode: string; totalAmount: number }) =>
-      apiRequest("POST", "/api/coupons/validate", data),
+    mutationFn: (couponCode: string) =>
+      apiRequest("POST", "/api/coupons/validate", { couponCode, totalAmount }),
     onSuccess: (data: CouponValidation) => {
       if (data.isValid) {
         setAppliedCoupon(data);
-        onCouponApplied(data);
-        toast({
-          title: "Coupon Applied!",
-          description: data.message,
-        });
+        toast({ title: "Coupon applied", description: data.message });
       } else {
-        toast({
-          title: "Invalid Coupon",
-          description: data.message,
-          variant: "destructive",
-        });
+        toast({ title: "Invalid coupon", description: data.message, variant: "destructive" });
       }
     },
     onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-    onSettled: () => {
-      setIsApplying(false);
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
 
-  const handleApplyCoupon = () => {
-    if (!couponCode.trim()) {
-      toast({
-        title: "Enter Coupon Code",
-        description: "Please enter a coupon code",
-        variant: "destructive",
-      });
+  const applyCoupon = (code: string) => {
+    const trimmed = code.trim();
+    if (!trimmed) {
+      toast({ title: "Enter a coupon code", variant: "destructive" });
       return;
     }
-
-    setIsApplying(true);
-    validateMutation.mutate({
-      couponCode: couponCode.trim(),
-      totalAmount,
-    });
+    validateMutation.mutate(trimmed);
   };
 
-  const handleRemoveCoupon = () => {
+  const removeCoupon = () => {
     setAppliedCoupon(null);
-    setCouponCode("");
-    onCouponRemoved();
-    toast({
-      title: "Coupon Removed",
-      description: "Coupon has been removed from your order",
-    });
+    toast({ title: "Coupon removed" });
   };
 
-  const getDiscountText = (coupon: CouponValidation) => {
-    if (!coupon.coupon) return "";
-
-    if (coupon.coupon.discountType === "fixed") {
-      return `₹${coupon.coupon.discountValue} OFF`;
-    } else {
-      return `${coupon.coupon.discountValue}% OFF${coupon.coupon.maxDiscountAmount ? ` (Max ₹${coupon.coupon.maxDiscountAmount})` : ''}`;
-    }
+  return {
+    appliedCoupon,
+    applyCoupon,
+    removeCoupon,
+    isApplying: validateMutation.isPending,
   };
+}
+
+function getDiscountLabel(coupon: CouponValidation) {
+  if (!coupon.coupon) return "";
+  const { discountType, discountValue, maxDiscountAmount } = coupon.coupon;
+  return discountType === "fixed"
+    ? `${currency(discountValue)} OFF`
+    : `${discountValue}% OFF${maxDiscountAmount ? ` (max ${currency(maxDiscountAmount)})` : ""}`;
+}
+
+function CouponInput({
+  appliedCoupon,
+  isApplying,
+  onApply,
+  onRemove,
+  onOpenOffers,
+}: {
+  appliedCoupon: CouponValidation | null;
+  isApplying: boolean;
+  onApply: (code: string) => void;
+  onRemove: () => void;
+  onOpenOffers: () => void;
+}) {
+  const [couponCode, setCouponCode] = useState("");
 
   return (
-    <Card>
-      <CardContent className="p-4">
-        {appliedCoupon ? (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Badge variant="secondary" className="flex items-center gap-1">
-                  <Tag className="w-3 h-3" />
-                  {appliedCoupon.coupon?.code}
-                </Badge>
-                <span className="text-sm text-green-600 font-medium">
-                  {getDiscountText(appliedCoupon)}
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <label className="text-sm font-medium">Coupon</label>
+        <button
+          type="button"
+          onClick={onOpenOffers}
+          className="flex items-center gap-1 text-xs font-medium text-primary"
+        >
+          <Tag className="h-3.5 w-3.5" />
+          View offers
+        </button>
+      </div>
+
+      <Card>
+        <CardContent className="p-3">
+          {appliedCoupon ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary" className="flex items-center gap-1">
+                    <Tag className="h-3 w-3" />
+                    {appliedCoupon.coupon?.code}
+                  </Badge>
+                  <span className="text-sm font-medium text-green-600">
+                    {getDiscountLabel(appliedCoupon)}
+                  </span>
+                </div>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onRemove}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Discount applied</span>
+                <span className="font-semibold text-green-600">
+                  -{currency(appliedCoupon.discountAmount)}
                 </span>
               </div>
-              <Button variant="ghost" size="sm" onClick={handleRemoveCoupon}>
-                <X className="w-4 h-4" />
-              </Button>
             </div>
-            <div className="flex items-center justify-between text-sm">
-              <span>Discount Applied:</span>
-              <span className="text-green-600 font-semibold">
-                -₹{appliedCoupon.discountAmount}
-              </span>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-3">
+          ) : (
             <div className="flex items-center gap-2">
               <Input
                 placeholder="Enter coupon code"
                 value={couponCode}
                 onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-                className="flex-1"
+                className="h-11 flex-1"
               />
               <Button
-                onClick={handleApplyCoupon}
+                className="h-11"
+                onClick={() => onApply(couponCode)}
                 disabled={isApplying || !couponCode.trim()}
-                size="sm"
               >
-                {isApplying ? "Applying..." : "Apply"}
+                {isApplying ? "Applying…" : "Apply"}
               </Button>
             </div>
-            <div className="text-xs text-muted-foreground">
-              Enter your coupon code to get discounts on your order
-            </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
+
+function OffersSheet({
+  open,
+  onClose,
+  onSelect,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSelect: (code: string) => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl bg-background sm:rounded-3xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b p-4">
+          <div>
+            <h3 className="text-lg font-semibold">Available Offers</h3>
+            <p className="text-xs text-muted-foreground">Tap an offer to apply it</p>
+          </div>
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <X className="h-5 w-5" />
+          </Button>
+        </div>
+
+        <div className="flex-1 space-y-3 overflow-y-auto p-4">
+          {PREDEFINED_OFFERS.map((offer) => (
+            <button
+              key={offer.code}
+              type="button"
+              onClick={() => {
+                onSelect(offer.code);
+                onClose();
+              }}
+              className="w-full rounded-lg border p-3 text-left transition-colors hover:border-primary"
+            >
+              <div className="flex items-start gap-3">
+                <div className="min-w-16 rounded bg-primary px-3 py-2 text-center text-primary-foreground">
+                  <span className="text-sm font-bold">{offer.code}</span>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h4 className="text-sm font-semibold leading-tight">{offer.title}</h4>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    {offer.subtitle}
+                  </p>
+                  <span className="mt-2 inline-block rounded bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
+                    {offer.tag}
+                  </span>
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <div className="border-t p-4">
+          <Button variant="secondary" className="h-11 w-full" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Booking type selector
+// ---------------------------------------------------------------------------
+
+function BookingTypeSelector({
+  serviceType,
+  price,
+  trialPrice,
+  monthlyPrice,
+  value,
+  onChange,
+}: {
+  serviceType: string;
+  price: number;
+  trialPrice?: number;
+  monthlyPrice?: number;
+  value: BookingType;
+  onChange: (type: BookingType) => void;
+}) {
+  if (serviceType !== "tiffin") {
+    return (
+      <div className="rounded-lg bg-primary/10 p-4 text-center">
+        <p className="font-semibold">Single Meal Order</p>
+        <p className="text-sm text-muted-foreground">{currency(price)} per meal</p>
+      </div>
+    );
+  }
+
+  const options: Array<{ type: BookingType; label: string; sub: string }> = [
+    { type: "trial", label: "Trial", sub: currency(trialPrice || 99) },
+    { type: "weekly", label: "Weekly", sub: "Custom" },
+    { type: "monthly", label: "Monthly", sub: currency(monthlyPrice || 2000) },
+  ];
+
+  return (
+    <div className="grid grid-cols-3 gap-2">
+      {options.map((option) => (
+        <Button
+          key={option.type}
+          type="button"
+          variant={value === option.type ? "default" : "outline"}
+          onClick={() => onChange(option.type)}
+          className="h-auto flex-col gap-0.5 py-3"
+        >
+          <span className="text-sm font-semibold">{option.label}</span>
+          <span className="text-xs opacity-90">{option.sub}</span>
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Price summary (reused in main form and confirm dialog)
+// ---------------------------------------------------------------------------
+
+function PriceSummary({
+  bookingType,
+  quantity,
+  selectedDaysCount,
+  basePrice,
+  addOnsPrice,
+  weeklyCustomizationsPrice,
+  deliveryCharge,
+  discountAmount,
+  finalAmount,
+  hasAddOns,
+  hasWeeklyCustomizations,
+}: {
+  bookingType: BookingType;
+  quantity: number;
+  selectedDaysCount: number;
+  basePrice: number;
+  addOnsPrice: number;
+  weeklyCustomizationsPrice: number;
+  deliveryCharge: number;
+  discountAmount: number;
+  finalAmount: number;
+  hasAddOns: boolean;
+  hasWeeklyCustomizations: boolean;
+}) {
+  const basePriceLabel =
+    bookingType === "single"
+      ? "Meal Price"
+      : bookingType === "trial"
+      ? "Trial Package"
+      : bookingType === "monthly"
+      ? "Monthly Subscription"
+      : "Weekly Subscription";
+
+  const isFreeDelivery = deliveryCharge === 0 || discountAmount > 0;
+
+  return (
+    <div className="space-y-2 border-t pt-4">
+      <Row label={basePriceLabel} value={currency(basePrice)} />
+
+      {bookingType === "weekly" && <Row label="Selected Days" value={`${selectedDaysCount} days`} />}
+
+      <Row label="Quantity" value={String(quantity)} />
+
+      {hasAddOns && <Row label="Add-ons" value={`+${currency(addOnsPrice)}`} />}
+
+      {hasWeeklyCustomizations && (
+        <Row label="Weekly Customizations" value={`+${currency(weeklyCustomizationsPrice)}`} />
+      )}
+
+      {isFreeDelivery ? (
+        <Row label="Delivery Charge" value="FREE" valueClassName="font-semibold text-green-600" />
+      ) : (
+        <Row label="Delivery Charge" value={`+${currency(deliveryCharge)}`} />
+      )}
+
+      {discountAmount > 0 && (
+        <Row
+          label="Coupon Discount"
+          value={`-${currency(discountAmount)}`}
+          valueClassName="text-green-600"
+        />
+      )}
+
+      <div className="flex items-center justify-between border-t pt-3">
+        <span className="text-base font-semibold">Total Amount</span>
+        <span className="text-xl font-bold text-primary">{currency(finalAmount)}</span>
+      </div>
+    </div>
+  );
+}
+
+function Row({
+  label,
+  value,
+  valueClassName = "",
+}: {
+  label: string;
+  value: string;
+  valueClassName?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={valueClassName}>{value}</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Payment method selector
+// ---------------------------------------------------------------------------
+
+function PaymentMethodSelector({
+  value,
+  onChange,
+  finalAmount,
+}: {
+  value: PaymentMethod;
+  onChange: (method: PaymentMethod) => void;
+  finalAmount: number;
+}) {
+  return (
+    <div className="space-y-3">
+      <h4 className="font-medium">Payment Method</h4>
+
+      <div className="space-y-2">
+        <PaymentOption
+          selected={value === "upi"}
+          onSelect={() => onChange("upi")}
+          icon={<CreditCard className="h-5 w-5 text-green-600" />}
+          title="UPI Payment"
+          description="Seller collects payment via UPI on delivery."
+        />
+        <PaymentOption
+          selected={value === "cod"}
+          onSelect={() => onChange("cod")}
+          icon={<Wallet className="h-5 w-5 text-orange-600" />}
+          title="Cash on Delivery"
+          description="Pay cash when the seller delivers your order."
+        />
+      </div>
+
+      <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+        Seller will collect <span className="font-semibold">{currency(finalAmount)}</span> via{" "}
+        {value === "upi" ? "UPI" : "cash"} on delivery. Please keep{" "}
+        {value === "upi" ? "your UPI app ready" : "exact change ready"}.
+      </div>
+    </div>
+  );
+}
+
+function PaymentOption({
+  selected,
+  onSelect,
+  icon,
+  title,
+  description,
+}: {
+  selected: boolean;
+  onSelect: () => void;
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`w-full rounded-lg border-2 p-3 text-left transition-colors ${
+        selected ? "border-primary bg-primary/5" : "border-border"
+      }`}
+    >
+      <div className="flex items-center gap-3">
+        <div
+          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${
+            selected ? "border-primary bg-primary" : "border-muted-foreground/40"
+          }`}
+        >
+          {selected && <div className="h-2 w-2 rounded-full bg-white" />}
+        </div>
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            {icon}
+            <p className="font-semibold">{title}</p>
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
 
 export default function TiffinDetail() {
   const { id } = useParams();
   const [, setLocation] = useLocation();
   const { isAuthenticated, user } = useAuth();
   const { toast } = useToast();
-  
-  const [selectedDate, setSelectedDate] = useState<string>("");
-  const [selectedSlot, setSelectedSlot] = useState<string>("");
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<"cod" | "upi">("upi");
+
+  const [selectedDate, setSelectedDate] = useState("");
+  const [selectedSlot, setSelectedSlot] = useState("");
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>("upi");
   const [quantity, setQuantity] = useState(1);
-  const [isBookingDialogOpen, setIsBookingDialogOpen] = useState(false);
-  const [isCustomizationDialogOpen, setIsCustomizationDialogOpen] = useState(false);
-  const [isAddOnsDialogOpen, setIsAddOnsDialogOpen] = useState(false);
-  const [selectedBookingType, setSelectedBookingType] = useState<"single" | "trial" | "weekly" | "monthly">("single");
+  const [selectedBookingType, setSelectedBookingType] = useState<BookingType>("single");
   const [selectedWeeklyCustomizations, setSelectedWeeklyCustomizations] = useState<WeeklyCustomization[]>([]);
   const [selectedDays, setSelectedDays] = useState<string[]>([]);
   const [selectedAddOns, setSelectedAddOns] = useState<SelectedAddOn[]>([]);
-  const [customInstructions, setCustomInstructions] = useState<string>("");
-  const [isScannerOpen, setIsScannerOpen] = useState(false);
-  const [appliedCoupon, setAppliedCoupon] = useState<CouponValidation | null>(null);
-  const [priceCalculation, setPriceCalculation] = useState<PriceCalculation | null>(null);
+  const [customInstructions, setCustomInstructions] = useState("");
 
-  const [isOffersPopupOpen, setIsOffersPopupOpen] = useState(false);
+  const [isBookingDialogOpen, setIsBookingDialogOpen] = useState(false);
+  const [isCustomizationDialogOpen, setIsCustomizationDialogOpen] = useState(false);
+  const [isAddOnsDialogOpen, setIsAddOnsDialogOpen] = useState(false);
+  const [isOffersSheetOpen, setIsOffersSheetOpen] = useState(false);
 
-  // FIXED: Use TiffinWithSeller instead of separate calls
-  const { data: tiffinWithSeller, isLoading } = useQuery<TiffinWithSeller>({
+  const { data: tiffin, isLoading } = useQuery<TiffinWithSeller>({
     queryKey: [`/api/tiffins/${id}`],
     enabled: !!id,
   });
 
-  // Get tiffin and seller from tiffinWithSeller
-  const tiffin = tiffinWithSeller;
-  const seller = tiffinWithSeller?.seller;
+  const seller = tiffin?.seller;
 
   const { data: reviews = [] } = useQuery<Review[]>({
     queryKey: tiffin ? [`/api/tiffins/${tiffin._id}/reviews`] : [],
     enabled: !!tiffin,
   });
 
-  // Price calculation mutation
-  const calculatePriceMutation = useMutation({
-    mutationFn: (bookingData: any) => 
-      apiRequest("POST", "/api/orders/calculate-price", bookingData),
-    onSuccess: (data: PriceCalculation) => {
-      setPriceCalculation(data);
-    },
-    onError: (error: Error) => {
-      console.error("Price calculation error:", error);
+  // ---- derived pricing (client-side, used for the live preview) ----------
+
+  const getBasePrice = () => {
+    if (!tiffin) return 0;
+    switch (selectedBookingType) {
+      case "single":
+        return tiffin.price * quantity;
+      case "trial":
+        return (tiffin.trialPrice || 99) * quantity;
+      case "weekly":
+        return tiffin.price * quantity * selectedDays.length;
+      case "monthly":
+        return tiffin.monthlyPrice || 2000 * quantity;
+      default:
+        return 0;
     }
+  };
+
+  const weeklyCustomizationsPrice = useMemo(
+    () =>
+      selectedWeeklyCustomizations.reduce((total, custom) => {
+        const applicableDays = custom.days.filter((day) => selectedDays.includes(day)).length;
+        return total + custom.price * applicableDays;
+      }, 0),
+    [selectedWeeklyCustomizations, selectedDays],
+  );
+
+  const addOnsPrice = useMemo(
+    () => selectedAddOns.reduce((total, addOn) => total + addOn.price * addOn.quantity, 0),
+    [selectedAddOns],
+  );
+
+  const subtotal = getBasePrice() + weeklyCustomizationsPrice + addOnsPrice;
+  const deliveryCharge = tiffin ? calculateDeliveryCharge(tiffin.serviceType, selectedBookingType) : 0;
+
+  const { appliedCoupon, applyCoupon, removeCoupon, isApplying } = useCoupon(subtotal);
+
+  // ---- server-side authoritative price calculation ------------------------
+
+  const [priceCalculation, setPriceCalculation] = useState<PriceCalculation | null>(null);
+
+  const calculatePriceMutation = useMutation({
+    mutationFn: (bookingData: unknown) => apiRequest("POST", "/api/orders/calculate-price", bookingData),
+    onSuccess: (data: PriceCalculation) => setPriceCalculation(data),
+    onError: (error: Error) => console.error("Price calculation error:", error),
   });
 
-  // Initialize selected days based on tiffin's available days
   useEffect(() => {
-    if (tiffin?.availableDays) {
-      setSelectedDays(tiffin.availableDays);
-    }
+    if (tiffin?.availableDays) setSelectedDays(tiffin.availableDays);
   }, [tiffin]);
 
-  // Calculate price whenever relevant data changes
   useEffect(() => {
     if (!tiffin) return;
 
-    const subtotal = calculateSubtotal();
-    const deliveryCharge = calculateDeliveryCharge(tiffin.serviceType, selectedBookingType);
-    
-    const bookingData = {
+    calculatePriceMutation.mutate({
       basePrice: getBasePrice(),
       addOns: selectedAddOns,
-      weeklyCustomizations: selectedWeeklyCustomizations.map(custom => ({
+      weeklyCustomizations: selectedWeeklyCustomizations.map((custom) => ({
         ...custom,
-        days: custom.days.filter(day => selectedDays.includes(day))
+        days: custom.days.filter((day) => selectedDays.includes(day)),
       })),
-      deliveryCharge: deliveryCharge,
-      couponCode: appliedCoupon?.coupon?.code
-    };
-
-    calculatePriceMutation.mutate(bookingData);
+      deliveryCharge,
+      couponCode: appliedCoupon?.coupon?.code,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tiffin, selectedBookingType, quantity, selectedDays, selectedAddOns, selectedWeeklyCustomizations, appliedCoupon]);
 
+  const finalAmount = priceCalculation?.finalAmount ?? subtotal + deliveryCharge - (appliedCoupon?.discountAmount || 0);
+
+  // ---- booking submission --------------------------------------------------
+
   const bookingMutation = useMutation({
-    mutationFn: async (bookingData: BookingData) => {
-      const finalData = {
+    mutationFn: (bookingData: BookingData) =>
+      apiRequest("POST", "/api/bookings", {
         ...bookingData,
         customerName: user?.name || "Customer",
         customerEmail: user?.email || "",
@@ -364,985 +719,470 @@ export default function TiffinDetail() {
         sellerId: tiffin?.sellerId || "",
         deliveryAddress: "Home Delivery",
         customization: customInstructions,
-      };
-      return await apiRequest("POST", "/api/bookings", finalData);
-    },
+      }),
     onSuccess: () => {
       toast({
-        title: "Booking Successful!",
-        description: "Your order has been placed successfully. The seller has been notified.",
+        title: "Booking successful!",
+        description: "Your order has been placed. The seller has been notified.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/user/bookings"] });
       setIsBookingDialogOpen(false);
-      setIsCustomizationDialogOpen(false);
-      setIsAddOnsDialogOpen(false);
       setLocation("/my-bookings");
     },
     onError: (error: Error) => {
-      toast({
-        title: "Booking Failed",
-        description: error.message || "Failed to place booking",
-        variant: "destructive",
-      });
+      toast({ title: "Booking failed", description: error.message, variant: "destructive" });
     },
   });
 
-  const getBasePrice = () => {
-    if (!tiffin) return 0;
+  // ---- helpers --------------------------------------------------------------
 
-    switch (selectedBookingType) {
-      case "single":
-        return tiffin.price * quantity;
-      case "trial":
-        return (tiffin.trialPrice || 99) * quantity;
-      case "weekly":
-        return (tiffin.price * quantity * selectedDays.length);
-      case "monthly":
-        return (tiffin.monthlyPrice || 2000) * quantity;
-      default:
-        return 0;
-    }
-  };
-
-  const calculateSubtotal = () => {
-    const basePrice = getBasePrice();
-    
-    // Add weekly customizations price
-    const weeklyCustomizationPrice = selectedWeeklyCustomizations.reduce((total, custom) => {
-      return total + (custom.price * selectedDays.filter(day => custom.days.includes(day)).length);
-    }, 0);
-
-    // Add add-ons price
-    const addOnsPrice = selectedAddOns.reduce((total, addOn) => {
-      return total + (addOn.price * addOn.quantity);
-    }, 0);
-
-    return basePrice + weeklyCustomizationPrice + addOnsPrice;
-  };
+  const requiresTimeSlot = selectedBookingType === "single" || selectedBookingType === "trial";
 
   const toggleWeeklyCustomization = (customization: WeeklyCustomization) => {
-    const isSelected = selectedWeeklyCustomizations.some(c => c.name === customization.name);
-    
-    if (isSelected) {
-      setSelectedWeeklyCustomizations(selectedWeeklyCustomizations.filter(c => c.name !== customization.name));
-    } else {
-      setSelectedWeeklyCustomizations([...selectedWeeklyCustomizations, customization]);
-    }
+    setSelectedWeeklyCustomizations((prev) =>
+      prev.some((c) => c.name === customization.name)
+        ? prev.filter((c) => c.name !== customization.name)
+        : [...prev, customization],
+    );
+  };
+
+  const toggleDaySelection = (day: string) => {
+    setSelectedDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
   };
 
   const updateAddOnQuantity = (addOnName: string, newQuantity: number) => {
     if (newQuantity < 0) return;
-    
-    setSelectedAddOns(prev => {
-      const existing = prev.find(a => a.name === addOnName);
+    setSelectedAddOns((prev) => {
+      const existing = prev.find((a) => a.name === addOnName);
       if (existing) {
-        if (newQuantity === 0) {
-          return prev.filter(a => a.name !== addOnName);
-        }
-        return prev.map(a => 
-          a.name === addOnName ? { ...a, quantity: newQuantity } : a
-        );
-      } else if (newQuantity > 0) {
-        const addOn = tiffin?.addOns?.find(a => a.name === addOnName);
-        if (addOn) {
-          return [...prev, { name: addOn.name, price: addOn.price, quantity: newQuantity }];
-        }
+        if (newQuantity === 0) return prev.filter((a) => a.name !== addOnName);
+        return prev.map((a) => (a.name === addOnName ? { ...a, quantity: newQuantity } : a));
+      }
+      if (newQuantity > 0) {
+        const addOn = tiffin?.addOns?.find((a) => a.name === addOnName);
+        if (addOn) return [...prev, { name: addOn.name, price: addOn.price, quantity: newQuantity }];
       }
       return prev;
     });
   };
 
-  const getAddOnQuantity = (addOnName: string) => {
-    const selected = selectedAddOns.find(a => a.name === addOnName);
-    return selected ? selected.quantity : 0;
-  };
-
-  const toggleDaySelection = (day: string) => {
-    if (selectedDays.includes(day)) {
-      setSelectedDays(selectedDays.filter(d => d !== day));
-    } else {
-      setSelectedDays([...selectedDays, day]);
-    }
-  };
-
-  const handleCouponApplied = (coupon: CouponValidation) => {
-    setAppliedCoupon(coupon);
-  };
-
-  const handleCouponRemoved = () => {
-    setAppliedCoupon(null);
-  };
+  const getAddOnQuantity = (addOnName: string) =>
+    selectedAddOns.find((a) => a.name === addOnName)?.quantity ?? 0;
 
   const handleBookNow = () => {
-  if (!isAuthenticated) {
-    toast({
-      title: "Login Required",
-      description: "Please login to book this service",
-      variant: "destructive",
-    });
-    setLocation("/login");
-    return;
-  }
-
-  // Time slot validation - only for single and trial
-  if ((selectedBookingType === "single" || selectedBookingType === "trial") && !selectedSlot) {
-    toast({
-      title: "Select Time Slot",
-      description: "Please select a delivery time slot",
-      variant: "destructive",
-    });
-    return;
-  }
-
-  if (!selectedDate) {
-    toast({
-      title: "Select Date",
-      description: "Please select a delivery date",
-      variant: "destructive",
-    });
-    return;
-  }
-
-  if (selectedBookingType === "weekly" && selectedDays.length === 0) {
-    toast({
-      title: "Select Days",
-      description: "Please select at least one day for weekly booking",
-      variant: "destructive",
-    });
-    return;
-  }
-
-  setIsBookingDialogOpen(true);
-};
-
-  const confirmBooking = () => {
-  if (!tiffin || !selectedDate || !priceCalculation) return;
-
-  // Weekly and monthly ke liye slot optional karo
-  if ((selectedBookingType === "single" || selectedBookingType === "trial") && !selectedSlot) {
-    toast({
-      title: "Select Time Slot",
-      description: "Please select a delivery time slot",
-      variant: "destructive",
-    });
-    return;
-  }
-
-  // "Now" slot ke liye special handling
-  let finalSlot = selectedSlot;
-  if (selectedSlot === "Now") {
-    finalSlot = "Instant Delivery - ASAP";
-  }
-  
-
-  const bookingData: BookingData = {
-    tiffinId: tiffin._id,
-    paymentMethod: selectedPaymentMethod, // ✅ PAYMENT METHOD ADD KARO
-    date: selectedDate,
-    slot: finalSlot || "Flexible", // Weekly/monthly ke liye flexible set karo
-    quantity,
-    totalPrice: priceCalculation.finalAmount,
-    bookingType: selectedBookingType,
-    basePrice: priceCalculation.basePrice,
-    addOnsPrice: priceCalculation.addOnsPrice,
-    deliveryCharge: priceCalculation.deliveryCharge,
-    discountAmount: priceCalculation.discountAmount,
-    couponDiscount: priceCalculation.couponDiscount,
-    ...(selectedBookingType === "weekly" && { selectedDays }),
-    ...(selectedWeeklyCustomizations.length > 0 && {
-      weeklyCustomizations: selectedWeeklyCustomizations.map(custom => ({
-        name: custom.name,
-        price: custom.price,
-        days: custom.days.filter(day => selectedDays.includes(day))
-      }))
-    }),
-    ...(selectedAddOns.length > 0 && {
-      addOns: selectedAddOns
-    }),
-    ...(appliedCoupon?.coupon?.code && {
-      couponCode: appliedCoupon.coupon.code
-    })
+    if (!isAuthenticated) {
+      toast({ title: "Login required", description: "Please login to book this service", variant: "destructive" });
+      setLocation("/login");
+      return;
+    }
+    if (requiresTimeSlot && !selectedSlot) {
+      toast({ title: "Select a time slot", variant: "destructive" });
+      return;
+    }
+    if (!selectedDate) {
+      toast({ title: "Select a delivery date", variant: "destructive" });
+      return;
+    }
+    if (selectedBookingType === "weekly" && selectedDays.length === 0) {
+      toast({ title: "Select at least one day", variant: "destructive" });
+      return;
+    }
+    setIsBookingDialogOpen(true);
   };
 
-  bookingMutation.mutate(bookingData);
-};
+  const confirmBooking = () => {
+    if (!tiffin || !selectedDate || !priceCalculation) return;
 
-  
+    const finalSlot = selectedSlot === "Now" ? "Instant Delivery - ASAP" : selectedSlot;
+
+    const bookingData: BookingData = {
+      tiffinId: tiffin._id,
+      paymentMethod: selectedPaymentMethod,
+      date: selectedDate,
+      slot: finalSlot || "Flexible",
+      quantity,
+      totalPrice: priceCalculation.finalAmount,
+      bookingType: selectedBookingType,
+      basePrice: priceCalculation.basePrice,
+      addOnsPrice: priceCalculation.addOnsPrice,
+      deliveryCharge: priceCalculation.deliveryCharge,
+      discountAmount: priceCalculation.discountAmount,
+      couponDiscount: priceCalculation.couponDiscount,
+      ...(selectedBookingType === "weekly" && { selectedDays }),
+      ...(selectedWeeklyCustomizations.length > 0 && {
+        weeklyCustomizations: selectedWeeklyCustomizations.map((custom) => ({
+          name: custom.name,
+          price: custom.price,
+          days: custom.days.filter((day) => selectedDays.includes(day)),
+        })),
+      }),
+      ...(selectedAddOns.length > 0 && { addOns: selectedAddOns }),
+      ...(appliedCoupon?.coupon?.code && { couponCode: appliedCoupon.coupon.code }),
+    };
+
+    bookingMutation.mutate(bookingData);
+  };
+
+  const handleQuickOrderNow = () => {
+    setSelectedSlot("Now");
+    setSelectedDate(new Date().toISOString().split("T")[0]);
+  };
+
+  // ---- loading / not-found states --------------------------------------------
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background">
-        <Navbar />
-        <div className="max-w-7xl mx-auto px-4 py-8">
-          <div className="animate-pulse">
-            <div className="h-8 bg-muted rounded w-1/3 mb-4"></div>
-            <div className="h-4 bg-muted rounded w-1/4 mb-8"></div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div className="h-96 bg-muted rounded"></div>
-              <div className="space-y-4">
-                <div className="h-8 bg-muted rounded"></div>
-                <div className="h-4 bg-muted rounded"></div>
-                <div className="h-4 bg-muted rounded w-2/3"></div>
-              </div>
-            </div>
-          </div>
-        </div>
+      <div className="mx-auto max-w-3xl animate-pulse space-y-4 px-4 py-6">
+        <div className="h-6 w-1/3 rounded bg-muted" />
+        <div className="h-64 rounded bg-muted" />
+        <div className="h-4 w-2/3 rounded bg-muted" />
       </div>
     );
   }
 
   if (!tiffin) {
     return (
-      <div className="min-h-screen bg-background">
-        
-        <div className="max-w-7xl mx-auto px-4 py-8 text-center">
-          <h1 className="text-2xl font-bold mb-4">Service Not Found</h1>
-          <p className="text-muted-foreground mb-4">The service you're looking for doesn't exist.</p>
-          <Button onClick={() => setLocation("/")}>Back to Home</Button>
-        </div>
+      <div className="mx-auto max-w-3xl px-4 py-10 text-center">
+        <h1 className="mb-2 text-xl font-bold">Service Not Found</h1>
+        <p className="mb-4 text-sm text-muted-foreground">The service you're looking for doesn't exist.</p>
+        <Button onClick={() => setLocation("/")}>Back to Home</Button>
       </div>
     );
   }
 
-  const averageRating = reviews.length > 0 
-    ? reviews.reduce((acc: number, review) => acc + review.rating, 0) / reviews.length 
-    : 0;
-
-  // Calculate delivery charge for display
-  const deliveryCharge = calculateDeliveryCharge(tiffin.serviceType, selectedBookingType);
+  const hasAddOns = selectedAddOns.length > 0;
+  const hasWeeklyCustomizations = selectedWeeklyCustomizations.length > 0;
 
   return (
-    <div className="min-h-screen bg-background">
-      
-      
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* Back Button */}
+    <div className="min-h-screen bg-background pb-28 lg:pb-8">
+      <div className="mx-auto max-w-5xl px-4 py-4 lg:py-8">
         <Link href="/">
-          <Button variant="ghost" className="mb-6">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Browse
+          <Button variant="ghost" size="sm" className="mb-4">
+            <ArrowLeft className="mr-1.5 h-4 w-4" />
+            Back
           </Button>
         </Link>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
-          {/* Left Column - Tiffin Details */}
-          <div className="space-y-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:gap-8">
+          {/* ---------------- Left column: details ---------------- */}
+          <div className="space-y-4">
             <Card className="overflow-hidden">
-              <div className="aspect-square bg-muted flex items-center justify-center">
-                <UtensilsCrossed className="w-24 h-24 text-muted-foreground" />
+              <div className="flex aspect-video items-center justify-center bg-muted lg:aspect-square">
+                <UtensilsCrossed className="h-16 w-16 text-muted-foreground" />
               </div>
             </Card>
 
-            {/* Tiffin Details */}
             <Card>
-              <CardContent className="p-6">
-                <h1 className="text-3xl font-bold mb-4">{tiffin.title}</h1>
-                <p className="text-lg text-muted-foreground mb-6">{tiffin.description}</p>
-
-                <div className="space-y-4">
-                  {/* Price Display */}
-                  <div className="flex items-center gap-3 p-4 bg-primary/10 rounded-lg">
-                    <IndianRupee className="w-6 h-6 text-primary" />
-                    <span className="text-3xl font-bold">{tiffin.price}</span>
-                    <span className="text-muted-foreground">per meal</span>
-                  </div>
-
-                  {/* Service Type Badge */}
-                  {tiffin.serviceType === "meal" && tiffin.mealType && (
-                    <Badge variant="outline" className="text-lg">
-                      {tiffin.mealType} Meal
-                    </Badge>
-                  )}
-
-                  {/* Available Days */}
-                  <div className="flex items-center gap-3">
-                    <Calendar className="w-5 h-5 text-muted-foreground" />
-                    <div>
-                      <p className="font-medium">Available Days</p>
-                      <p className="text-sm text-muted-foreground">{tiffin.availableDays.join(", ")}</p>
-                    </div>
-                  </div>
-
-                  {/* Time Slots */}
-                  <div className="flex items-center gap-3">
-                    <Clock className="w-5 h-5 text-muted-foreground" />
-                    <div>
-                      <p className="font-medium">Available Time Slots</p>
-                      <p className="text-sm text-muted-foreground">{tiffin.slots.join(", ")}</p>
-                    </div>
-                  </div>
-
-                  {/* Add-ons Preview */}
-                  {tiffin.addOns && tiffin.addOns.filter(a => a.available).length > 0 && (
-                    <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                      <div className="flex items-center justify-between mb-3">
-                        <p className="font-medium text-blue-800">Add-on Options Available</p>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setIsAddOnsDialogOpen(true)}
-                          className="bg-blue-100 hover:bg-blue-200"
-                        >
-                          <Plus className="w-4 h-4 mr-2" />
-                          Add Items
-                        </Button>
-                      </div>
-                      <div className="space-y-2">
-                        {tiffin.addOns.filter(a => a.available).slice(0, 2).map((addOn: AddOn, index: number) => (
-                          <div key={index} className="flex items-center justify-between text-sm">
-                            <span className="text-blue-700">{addOn.name}</span>
-                            <Badge variant="outline" className="bg-blue-100 text-blue-700">
-                              +₹{addOn.price}
-                            </Badge>
-                          </div>
-                        ))}
-                        {tiffin.addOns.filter(a => a.available).length > 2 && (
-                          <p className="text-xs text-blue-600">
-                            +{tiffin.addOns.filter(a => a.available).length - 2} more options available
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Customization Options */}
-                  {tiffin.customizableOptions && tiffin.customizableOptions.length > 0 && (
-                    <div className="bg-muted rounded-lg p-4">
-                      <p className="font-medium mb-2">Customization Options:</p>
-                      <div className="flex flex-wrap gap-2">
-                        {tiffin.customizableOptions.map((option: string, index: number) => (
-                          <Badge key={index} variant="secondary" className="text-xs">
-                            <CheckCircle2 className="w-3 h-3 mr-1" />
-                            {option}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Weekly Customizations Preview */}
-                  {tiffin.weeklyCustomizations && tiffin.weeklyCustomizations.length > 0 && (
-                    <div className="bg-green-50 rounded-lg p-4 border border-green-200">
-                      <div className="flex items-center justify-between mb-3">
-                        <p className="font-medium text-green-800">Weekly Customization Options Available</p>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setIsCustomizationDialogOpen(true)}
-                          className="bg-green-100 hover:bg-green-200"
-                        >
-                          <Plus className="w-4 h-4 mr-2" />
-                          Customize
-                        </Button>
-                      </div>
-                      <div className="space-y-2">
-                        {tiffin.weeklyCustomizations.slice(0, 2).map((custom: WeeklyCustomization, index: number) => (
-                          <div key={index} className="flex items-center justify-between text-sm">
-                            <span className="text-green-700">{custom.name}</span>
-                            <Badge variant="outline" className="bg-green-100 text-green-700">
-                              +₹{custom.price}
-                            </Badge>
-                          </div>
-                        ))}
-                        {tiffin.weeklyCustomizations.length > 2 && (
-                          <p className="text-xs text-green-600">
-                            +{tiffin.weeklyCustomizations.length - 2} more options available
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  )}
+              <CardContent className="space-y-4 p-4">
+                <div>
+                  <h1 className="text-xl font-bold leading-tight lg:text-2xl">{tiffin.title}</h1>
+                  <p className="mt-1 text-sm text-muted-foreground">{tiffin.description}</p>
                 </div>
+
+                <div className="flex items-center gap-2 rounded-lg bg-primary/10 p-3">
+                  <IndianRupee className="h-5 w-5 text-primary" />
+                  <span className="text-2xl font-bold">{tiffin.price}</span>
+                  <span className="text-sm text-muted-foreground">per meal</span>
+                </div>
+
+                {tiffin.serviceType === "meal" && tiffin.mealType && (
+                  <Badge variant="outline">{tiffin.mealType} Meal</Badge>
+                )}
+
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <p className="font-medium">Available Days</p>
+                    <span className="text-xs text-muted-foreground">({tiffin.availableDays.length}/7)</span>
+                  </div>
+                  <WeekAvailability availableDays={tiffin.availableDays} />
+                </div>
+
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <p className="font-medium">Available Time Slots</p>
+                    <span className="text-xs text-muted-foreground">({tiffin.slots.length})</span>
+                  </div>
+                  <TimeSlotList slots={tiffin.slots} />
+                </div>
+
+                {tiffin.addOns && tiffin.addOns.filter((a) => a.available).length > 0 && (
+                  <InfoPanel
+                    title="Add-on Options Available"
+                    actionLabel="Add Items"
+                    onAction={() => setIsAddOnsDialogOpen(true)}
+                  >
+                    {tiffin.addOns
+                      .filter((a) => a.available)
+                      .slice(0, 2)
+                      .map((addOn: AddOn) => (
+                        <Row key={addOn.name} label={addOn.name} value={`+${currency(addOn.price)}`} />
+                      ))}
+                  </InfoPanel>
+                )}
+
+                {tiffin.customizableOptions && tiffin.customizableOptions.length > 0 && (
+                  <div className="rounded-lg bg-muted p-3">
+                    <p className="mb-2 text-sm font-medium">Customization Options</p>
+                    <div className="flex flex-wrap gap-2">
+                      {tiffin.customizableOptions.map((option: string) => (
+                        <Badge key={option} variant="secondary" className="text-xs">
+                          <CheckCircle2 className="mr-1 h-3 w-3" />
+                          {option}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {tiffin.weeklyCustomizations && tiffin.weeklyCustomizations.length > 0 && (
+                  <InfoPanel
+                    title="Weekly Customization Options"
+                    actionLabel="Customize"
+                    onAction={() => setIsCustomizationDialogOpen(true)}
+                  >
+                    {tiffin.weeklyCustomizations.slice(0, 2).map((custom: WeeklyCustomization) => (
+                      <Row key={custom.name} label={custom.name} value={`+${currency(custom.price)}`} />
+                    ))}
+                  </InfoPanel>
+                )}
               </CardContent>
             </Card>
 
-            {/* Seller Info - FIXED */}
             <Card>
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <ChefHat className="w-5 h-5" />
-                  About the Seller
-                </CardTitle>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">About the Seller</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold">{seller?.shopName || "Seller"}</span>
-                  <Badge variant={seller?.status === "active" ? "default" : "secondary"}>
-                    {seller?.status || "Active"}
-                  </Badge>
-                </div>
-                
-                {/* FIXED: Address with Google Maps Link */}
-                <div className="flex items-start gap-2">
-                  <MapPin className="w-4 h-4 mt-0.5 text-muted-foreground" />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-muted-foreground">Shop Address</p>
-                    <p className="text-sm text-muted-foreground">{seller?.address}</p>
-                    <p className="text-sm text-muted-foreground">{seller?.city}</p>
-                    {seller?.address && seller?.city && (
-                      <a
-                        href={getGoogleMapsUrl(seller.address, seller.city)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary hover:underline text-xs flex items-center gap-1 mt-1"
-                      >
-                        <MapPin className="w-3 h-3" />
-                        View Shop on Google Maps
-                      </a>
-                    )}
+              <CardContent className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                    <ChefHat className="h-6 w-6 text-primary" />
                   </div>
-                </div>                       
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold">{seller?.shopName || "Seller"}</p>
+                    <Badge
+                      variant={seller?.status === "active" ? "default" : "secondary"}
+                      className="mt-1"
+                    >
+                      {seller?.status === "active" ? "Active" : seller?.status || "Active"}
+                    </Badge>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3 rounded-lg border bg-muted/30 p-3">
+                  <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">Shop Address</p>
+                    <p className="text-sm text-muted-foreground">
+                      {seller?.address}
+                      {seller?.address && seller?.city ? ", " : ""}
+                      {seller?.city}
+                    </p>
+                  </div>
+                </div>
+
+                {seller?.address && seller?.city && (
+                  <Button variant="outline" className="h-11 w-full" asChild>
+                    <a
+                      href={getGoogleMapsUrl(seller.address, seller.city)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <MapPin className="mr-2 h-4 w-4" />
+                      Get Directions
+                    </a>
+                  </Button>
+                )}
               </CardContent>
             </Card>
           </div>
 
-          {/* Right Column - Booking Form */}
-          <div className="space-y-6">
-            <Card className="sticky top-4 shadow-lg">
-              <CardHeader>
-                <CardTitle className="text-2xl">
+          {/* ---------------- Right column: booking form ---------------- */}
+          <div>
+            <Card className="lg:sticky lg:top-4">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg lg:text-xl">
                   {tiffin.serviceType === "meal" ? "Order Meal" : "Book Tiffin Service"}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-6">
+
+              <CardContent className="space-y-5">
                 {!isAuthenticated ? (
-                  <div className="text-center py-8">
-                    <p className="text-muted-foreground mb-4">Please login to place an order</p>
+                  <div className="py-6 text-center">
+                    <p className="mb-3 text-sm text-muted-foreground">Please login to place an order</p>
                     <Link href="/login">
-                      <Button>Login to Order</Button>
+                      <Button className="h-11">Login to Order</Button>
                     </Link>
                   </div>
                 ) : (
                   <>
-                   {/* Booking Type Selection - Appetite Red */}
-<div className="space-y-3">
-  <label className="text-sm font-medium text-gray-700">Choose Your Plan</label>
-  {tiffin.serviceType === "tiffin" ? (
-    <div className="grid grid-cols-3 gap-2">
-      <Button
-        type="button"
-        variant={selectedBookingType === "trial" ? "default" : "outline"}
-        onClick={() => setSelectedBookingType("trial")}
-        className="h-auto py-3 bg-red-500 hover:bg-red-600 text-white border-0 shadow-lg transition-all duration-300 hover:scale-105"
-      >
-        <div className="text-center">
-          <p className="font-bold">Trial</p>
-          <p className="text-xs opacity-90">₹{tiffin.trialPrice || 99}</p>
-        </div>
-      </Button>
-      <Button
-        type="button"
-        variant={selectedBookingType === "weekly" ? "default" : "outline"}
-        onClick={() => setSelectedBookingType("weekly")}
-        className="h-auto py-3 bg-red-500 hover:bg-red-600 text-white border-0 shadow-lg transition-all duration-300 hover:scale-105"
-      >
-        <div className="text-center">
-          <p className="font-bold">Weekly</p>
-          <p className="text-xs opacity-90">Custom</p>
-        </div>
-      </Button>
-      <Button
-        type="button"
-        variant={selectedBookingType === "monthly" ? "default" : "outline"}
-        onClick={() => setSelectedBookingType("monthly")}
-        className="h-auto py-3 bg-red-500 hover:bg-red-600 text-white border-0 shadow-lg transition-all duration-300 hover:scale-105"
-      >
-        <div className="text-center">
-          <p className="font-bold">Monthly</p>
-          <p className="text-xs opacity-90">₹{tiffin.monthlyPrice || 2000}</p>
-        </div>
-      </Button>
-    </div>
-                      ) : (
-                        <div className="text-center p-4 bg-primary/10 rounded-lg">
-                          <p className="font-semibold">Single Meal Order</p>
-                          <p className="text-sm text-muted-foreground">₹{tiffin.price} per meal</p>
-                        </div>
-                      )}
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Choose Your Plan</label>
+                      <BookingTypeSelector
+                        serviceType={tiffin.serviceType}
+                        price={tiffin.price}
+                        trialPrice={tiffin.trialPrice}
+                        monthlyPrice={tiffin.monthlyPrice}
+                        value={selectedBookingType}
+                        onChange={setSelectedBookingType}
+                      />
                     </div>
 
-                    {/* Date Selection */}
                     <div className="space-y-2">
                       <label className="text-sm font-medium">Delivery Date</label>
                       <input
                         type="date"
                         value={selectedDate}
                         onChange={(e) => setSelectedDate(e.target.value)}
-                        min={new Date().toISOString().split('T')[0]}
-                        className="w-full p-3 border rounded-md"
+                        min={new Date().toISOString().split("T")[0]}
+                        className="h-11 w-full rounded-md border px-3"
                       />
                     </div>
 
-{/* Time Slot Selection - CONDITIONAL RENDER */}
-{(selectedBookingType === "single" || selectedBookingType === "trial") && (
-  <div className="space-y-2">
-    <label className="text-sm font-medium">Time Slot</label>
-    <Select value={selectedSlot} onValueChange={setSelectedSlot}>
-      <SelectTrigger>
-        <SelectValue placeholder="Select time slot" />
-      </SelectTrigger>
-      <SelectContent>
-        {tiffin.slots.map((slot) => (
-          <SelectItem key={slot} value={slot}>
-            {slot}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-    
-    {/* Now Button - Quick Booking */}
-    {selectedSlot === "Now" && (
-      <div className="bg-green-50 border border-green-200 rounded-lg p-3 mt-2">
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-          <p className="text-sm text-green-700 font-medium">
-            Instant Delivery Selected! Seller will deliver ASAP.
-          </p>
-        </div>
-      </div>
-    )}
-  </div>
-)}
+                    {requiresTimeSlot ? (
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Time Slot</label>
+                        <Select value={selectedSlot} onValueChange={setSelectedSlot}>
+                          <SelectTrigger className="h-11">
+                            <SelectValue placeholder="Select time slot" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {tiffin.slots.map((slot) => (
+                              <SelectItem key={slot} value={slot}>
+                                {slot}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
 
-{/* Weekly and monthly bookings ke liye time slot show nahi hoga */}
-{(selectedBookingType === "weekly" || selectedBookingType === "monthly") && (
-  <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-    <div className="flex items-center gap-2">
-      <Clock className="w-4 h-4 text-blue-600" />
-      <p className="text-sm text-blue-700">
-        <span className="font-semibold">Flexible Delivery:</span> For {selectedBookingType} plans, 
-        the seller will contact you to confirm delivery timing.
-      </p>
-    </div>
-  </div>
-)}
+                        {selectedSlot === "Now" && (
+                          <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-3">
+                            <div className="h-2 w-2 rounded-full bg-green-500" />
+                            <p className="text-sm font-medium text-green-700">
+                              Instant delivery selected — seller will deliver ASAP.
+                            </p>
+                          </div>
+                        )}
 
-                  {/* Quick Action Buttons */}
-{(selectedBookingType === "single" || selectedBookingType === "trial") && (
-  <div className="space-y-2">
-    <Button 
-      variant="outline" 
-      className="w-full bg-green-50 border-green-200 hover:bg-green-100"
-      onClick={() => {
-        setSelectedSlot("Now");
-        setSelectedDate(new Date().toISOString().split('T')[0]);
-      }}
-    >
-      
-      Order Now (Instant Delivery)
-    </Button>
-  </div>
-)}
+                        <Button variant="outline" className="h-11 w-full" onClick={handleQuickOrderNow}>
+                          Order Now (Instant Delivery)
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
+                        <Clock className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>
+                          <span className="font-semibold">Flexible delivery:</span> for {selectedBookingType}{" "}
+                          plans, the seller will contact you to confirm delivery timing.
+                        </span>
+                      </div>
+                    )}
 
-                    {/* Quantity Selection */}
                     <div className="space-y-2">
                       <label className="text-sm font-medium">Quantity</label>
                       <div className="flex items-center gap-3">
                         <Button
                           variant="outline"
                           size="icon"
+                          className="h-11 w-11"
                           onClick={() => setQuantity(Math.max(1, quantity - 1))}
                         >
-                          <Minus className="w-4 h-4" />
+                          <Minus className="h-4 w-4" />
                         </Button>
-                        <span className="font-semibold min-w-8 text-center text-lg">{quantity}</span>
+                        <span className="min-w-8 text-center text-lg font-semibold">{quantity}</span>
                         <Button
                           variant="outline"
                           size="icon"
+                          className="h-11 w-11"
                           onClick={() => setQuantity(quantity + 1)}
                         >
-                          <Plus className="w-4 h-4" />
+                          <Plus className="h-4 w-4" />
                         </Button>
                       </div>
                     </div>
 
-                   {/* Coupon Input Section */}
-<div className="space-y-3">
-  <div className="flex items-center justify-between">
-    <label className="text-sm font-medium text-gray-700">Apply Coupon</label>
-    <button 
-      onClick={() => setIsOffersPopupOpen(true)}
-      className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
-      style={{ transition: 'all 0.2s ease' }}
-    >
-      <Tag className="w-3 h-3" />
-      View offers
-    </button>
-  </div>
-  
-  <CouponInput
-    onCouponApplied={handleCouponApplied}
-    onCouponRemoved={handleCouponRemoved}
-    totalAmount={calculateSubtotal()}
-  />
-</div>
+                    <CouponInput
+                      appliedCoupon={appliedCoupon}
+                      isApplying={isApplying}
+                      onApply={applyCoupon}
+                      onRemove={removeCoupon}
+                      onOpenOffers={() => setIsOffersSheetOpen(true)}
+                    />
 
-{/* Amazon Style Offers Popup */}
-{isOffersPopupOpen && (
-  <div 
-    className="fixed inset-0 bg-black bg-opacity-50 flex items-end justify-center z-50 sm:items-center sm:p-4"
-    style={{ animation: 'fadeIn 0.3s ease' }}
-  >
-    <div 
-      className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-lg max-h-[85vh] overflow-hidden"
-      style={{ 
-        animation: 'slideUp 0.3s ease-out',
-        boxShadow: '0 -4px 20px rgba(0,0,0,0.1)'
-      }}
-    >
-      {/* Header */}
-      <div 
-        className="p-4 border-b border-gray-200 sticky top-0 bg-white"
-        style={{ backdropFilter: 'blur(8px)' }}
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900">Apply Coupon</h3>
-            <p className="text-xs text-gray-500 mt-1">Choose from available offers</p>
-          </div>
-          <button 
-            onClick={() => setIsOffersPopupOpen(false)}
-            className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-            style={{ transition: 'all 0.2s ease' }}
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
-      </div>
-
-      {/* Offers List */}
-      <div className="p-4 overflow-y-auto max-h-[60vh]">
-        <div className="space-y-3">
-
-                {/* Offer 4 - Zomato Red Style */}
-          <div 
-            onClick={() => {
-              handleCouponApplied({ code: 'FIRST100', discount: 44 });
-              setIsOffersPopupOpen(false);
-            }}
-            className="p-3 border border-red-200 rounded-lg bg-white hover:border-red-400 hover:shadow-sm cursor-pointer"
-            style={{
-              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-              transform: 'translateY(0)'
-            }}
-            onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-            onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-          >
-            <div className="flex items-start gap-3">
-              <div 
-                className="text-white rounded px-3 py-2 min-w-16 text-center"
-                style={{
-                  background: 'linear-gradient(135deg, #E23744 0%, #CB202D 100%)',
-                  boxShadow: '0 2px 4px rgba(226, 55, 68, 0.3)'
-                }}
-              >
-                <span className="font-bold text-sm">FIRST100</span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <h4 className="font-semibold text-gray-900 text-sm leading-tight">Flat ₹44 Off on All Orders</h4>
-                <p className="text-xs text-gray-600 mt-1 leading-relaxed">Instant discount on minimum order value</p>
-                <div className="flex items-center gap-2 mt-2">
-                  <div 
-                    className="text-red-700 text-xs px-2 py-1 rounded font-medium"
-                    style={{ backgroundColor: 'rgba(226, 55, 68, 0.1)' }}
-                  >
-                    FLAT ₹44 OFF
-                  </div>
-                </div>
-              </div>
-              <div className="w-4 h-4 text-gray-400 flex-shrink-0 mt-1">
-                →
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-          {/* Offer 3 - Zomato Red Style */}
-          <div 
-            onClick={() => {
-              handleCouponApplied({ code: 'FIRST200', discount: 10 });
-              setIsOffersPopupOpen(false);
-            }}
-            className="p-3 border border-red-200 rounded-lg bg-white hover:border-red-400 hover:shadow-sm cursor-pointer"
-            style={{
-              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-              transform: 'translateY(0)'
-            }}
-            onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-            onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-          >
-            <div className="flex items-start gap-3">
-              <div 
-                className="text-white rounded px-3 py-2 min-w-16 text-center"
-                style={{
-                  background: 'linear-gradient(135deg, #E23744 0%, #CB202D 100%)',
-                  boxShadow: '0 2px 4px rgba(226, 55, 68, 0.3)'
-                }}
-              >
-                <span className="font-bold text-sm">FIRST200</span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <h4 className="font-semibold text-gray-900 text-sm leading-tight">10% Off on First Order</h4>
-                <p className="text-xs text-gray-600 mt-1 leading-relaxed">Special welcome discount for new customers</p>
-                <div className="flex items-center gap-2 mt-2">
-                  <div 
-                    className="text-red-700 text-xs px-2 py-1 rounded font-medium"
-                    style={{ backgroundColor: 'rgba(226, 55, 68, 0.1)' }}
-                  >
-                    10% OFF
-                  </div>
-                </div>
-              </div>
-              <div className="w-4 h-4 text-gray-400 flex-shrink-0 mt-1">
-                →
-              </div>
-            </div>
-          </div>
-
-          {/* Offer 3 - Zomato Red Style */}
-          <div 
-            onClick={() => {
-              handleCouponApplied({ code: 'SAVE30', discount: 30 });
-              setIsOffersPopupOpen(false);
-            }}
-            className="p-3 border border-red-200 rounded-lg bg-white hover:border-red-400 hover:shadow-sm cursor-pointer"
-            style={{
-              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-              transform: 'translateY(0)'
-            }}
-            onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-            onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-          >
-            <div className="flex items-start gap-3">
-              <div 
-                className="text-white rounded px-3 py-2 min-w-16 text-center"
-                style={{
-                  background: 'linear-gradient(135deg, #E23744 0%, #CB202D 100%)',
-                  boxShadow: '0 2px 4px rgba(226, 55, 68, 0.3)'
-                }}
-              >
-                <span className="font-bold text-sm">FIRST200</span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <h4 className="font-semibold text-gray-900 text-sm leading-tight">30% Off on First Order</h4>
-                <p className="text-xs text-gray-600 mt-1 leading-relaxed">Enjoy a special ₹30 off as a limited-time reward.</p>
-                <div className="flex items-center gap-2 mt-2">
-                  <div 
-                    className="text-red-700 text-xs px-2 py-1 rounded font-medium"
-                    style={{ backgroundColor: 'rgba(226, 55, 68, 0.1)' }}
-                  >
-                     30% OFF
-                  </div>
-                </div>
-              </div>
-              <div className="w-4 h-4 text-gray-400 flex-shrink-0 mt-1">
-                →
-              </div>
-            </div>
-          </div>
-
-                {/* Offer 2 - Zomato Red Style */}
-          <div 
-            onClick={() => {
-              handleCouponApplied({ code: 'FREEDEL', discount: 'Free Delivery' });
-              setIsOffersPopupOpen(false);
-            }}
-            className="p-3 border border-red-200 rounded-lg bg-white hover:border-red-400 hover:shadow-sm cursor-pointer"
-            style={{
-              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-              transform: 'translateY(0)'
-            }}
-            onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-            onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-          >
-            <div className="flex items-start gap-3">
-              <div 
-                className="text-white rounded px-3 py-2 min-w-16 text-center"
-                style={{
-                  background: 'linear-gradient(135deg, #E23744 0%, #CB202D 100%)',
-                  boxShadow: '0 2px 4px rgba(226, 55, 68, 0.3)'
-                }}
-              >
-                <span className="font-bold text-sm">FREEDEL</span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <h4 className="font-semibold text-gray-900 text-sm leading-tight">FREE Delivery on Your Order</h4>
-                <p className="text-xs text-gray-600 mt-1 leading-relaxed">No delivery charges on your order</p>
-                <div className="flex items-center gap-2 mt-2">
-                  <div 
-                    className="text-red-700 text-xs px-2 py-1 rounded font-medium"
-                    style={{ backgroundColor: 'rgba(226, 55, 68, 0.1)' }}
-                  >
-                    FREE DELIVERY
-                  </div>
-                </div>
-              </div>
-              <div className="w-4 h-4 text-gray-400 flex-shrink-0 mt-1">
-                →
-              </div>
-            </div>
-          </div>
-
-      {/* Footer */}
-      <div className="p-4 border-t border-gray-200 bg-gray-50 sticky bottom-0">
-        <button 
-          onClick={() => setIsOffersPopupOpen(false)}
-          className="w-full py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors font-medium text-sm"
-          style={{ transition: 'all 0.2s ease' }}
-        >
-          Close
-        </button>
-      </div>
-    </div>
-  </div>
-)}
-                    
-
-                    {/* Custom Instructions */}
                     <div className="space-y-2">
                       <label className="text-sm font-medium">Special Instructions</label>
                       <textarea
                         value={customInstructions}
                         onChange={(e) => setCustomInstructions(e.target.value)}
-                        placeholder="Any special dietary requirements or instructions..."
-                        className="w-full p-3 border rounded-md min-h-[80px]"
+                        placeholder="Any special dietary requirements or instructions…"
+                        className="min-h-[80px] w-full rounded-md border p-3 text-sm"
                       />
                     </div>
 
-                    {/* Weekly Customization Button */}
-                    {tiffin.weeklyCustomizations && tiffin.weeklyCustomizations.length > 0 && selectedBookingType === "weekly" && (
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Weekly Customizations</label>
-                        <Button
-                          variant="outline"
-                          className="w-full"
-                          onClick={() => setIsCustomizationDialogOpen(true)}
-                        >
-                          <Plus className="w-4 h-4 mr-2" />
-                          {selectedWeeklyCustomizations.length > 0 
-                            ? `${selectedWeeklyCustomizations.length} Customizations Selected` 
-                            : "Add Weekly Customizations"}
-                        </Button>
+                    {tiffin.weeklyCustomizations &&
+                      tiffin.weeklyCustomizations.length > 0 &&
+                      selectedBookingType === "weekly" && (
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Weekly Customizations</label>
+                          <Button
+                            variant="outline"
+                            className="h-11 w-full"
+                            onClick={() => setIsCustomizationDialogOpen(true)}
+                          >
+                            <Plus className="mr-2 h-4 w-4" />
+                            {selectedWeeklyCustomizations.length > 0
+                              ? `${selectedWeeklyCustomizations.length} customizations selected`
+                              : "Add weekly customizations"}
+                          </Button>
+                        </div>
+                      )}
+
+                    {(hasAddOns || hasWeeklyCustomizations) && (
+                      <div className="space-y-1 rounded-lg border bg-muted/20 p-3">
+                        <h4 className="mb-1 text-sm font-medium">Selected Items</h4>
+                        {selectedAddOns.map((addOn) => (
+                          <Row
+                            key={addOn.name}
+                            label={`${addOn.name} × ${addOn.quantity}`}
+                            value={currency(addOn.price * addOn.quantity)}
+                          />
+                        ))}
+                        {selectedWeeklyCustomizations.map((custom) => (
+                          <Row key={custom.name} label={custom.name} value={`+${currency(custom.price)}/day`} />
+                        ))}
                       </div>
                     )}
 
-                    {/* Selected Items Summary */}
-                    {(selectedAddOns.length > 0 || selectedWeeklyCustomizations.length > 0) && (
-                      <div className="border rounded-lg p-3 bg-muted/20">
-                        <h4 className="font-medium mb-2">Selected Items:</h4>
-                        
-                        {selectedAddOns.length > 0 && (
-                          <>
-                            <p className="text-sm font-medium mb-1">Add-ons:</p>
-                            {selectedAddOns.map((addOn, index) => (
-                              <div key={index} className="flex items-center justify-between text-sm mb-1">
-                                <span>{addOn.name} × {addOn.quantity}</span>
-                                <span>₹{addOn.price * addOn.quantity}</span>
-                              </div>
-                            ))}
-                          </>
-                        )}
+                    <PriceSummary
+                      bookingType={selectedBookingType}
+                      quantity={quantity}
+                      selectedDaysCount={selectedDays.length}
+                      basePrice={priceCalculation?.basePrice ?? getBasePrice()}
+                      addOnsPrice={priceCalculation?.addOnsPrice ?? addOnsPrice}
+                      weeklyCustomizationsPrice={weeklyCustomizationsPrice}
+                      deliveryCharge={deliveryCharge}
+                      discountAmount={priceCalculation?.discountAmount ?? 0}
+                      finalAmount={finalAmount}
+                      hasAddOns={hasAddOns}
+                      hasWeeklyCustomizations={hasWeeklyCustomizations}
+                    />
 
-                        {selectedWeeklyCustomizations.length > 0 && (
-                          <>
-                            <p className="text-sm font-medium mb-1 mt-2">Weekly Customizations:</p>
-                            {selectedWeeklyCustomizations.map((custom, index) => (
-                              <div key={index} className="flex items-center justify-between text-sm mb-1">
-                                <span>{custom.name}</span>
-                                <span>+₹{custom.price} per day</span>
-                              </div>
-                            ))}
-                          </>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Price Summary */}
-                    <div className="border-t pt-4 space-y-3">
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">
-                          {selectedBookingType === "single" ? "Meal Price" :
-                           selectedBookingType === "trial" ? "Trial Package" :
-                           selectedBookingType === "monthly" ? "Monthly Subscription" : "Weekly Subscription"}
-                        </span>
-                        <span>₹{priceCalculation?.basePrice || getBasePrice()}</span>
-                      </div>
-
-                      {selectedBookingType === "weekly" && (
-                        <div className="flex justify-between items-center">
-                          <span className="text-muted-foreground">Selected Days</span>
-                          <span>{selectedDays.length} days</span>
-                        </div>
-                      )}
-
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">Quantity</span>
-                        <span>{quantity}</span>
-                      </div>
-
-                      {selectedAddOns.length > 0 && (
-                        <div className="flex justify-between items-center">
-                          <span className="text-muted-foreground">Add-ons</span>
-                          <span>+₹{priceCalculation?.addOnsPrice || selectedAddOns.reduce((total, addOn) => total + (addOn.price * addOn.quantity), 0)}</span>
-                        </div>
-                      )}
-
-                      {selectedWeeklyCustomizations.length > 0 && (
-                        <div className="flex justify-between items-center">
-                          <span className="text-muted-foreground">Weekly Customizations</span>
-                          <span>+₹{
-                            selectedWeeklyCustomizations.reduce((total, custom) => {
-                              return total + (custom.price * selectedDays.filter(day => custom.days.includes(day)).length);
-                            }, 0)
-                          }</span>
-                        </div>
-                      )}
-
-                      {/* Delivery Charge - Show only once */}
-{deliveryCharge === 0 || appliedCoupon ? (
-  <div className="flex justify-between items-center text-green-600">
-    <span className="text-muted-foreground">Delivery Charge</span>
-    <span className="font-semibold">FREE</span>
-  </div>
-) : deliveryCharge > 0 ? (
-  <div className="flex justify-between items-center">
-    <span className="text-muted-foreground">Delivery Charge</span>
-    <span>+₹{deliveryCharge}</span>
-  </div>
-) : null}
-
-                      {appliedCoupon && (
-                        <div className="flex justify-between items-center text-green-600">
-                          <span className="text-muted-foreground">Coupon Discount</span>
-                          <span>-₹{priceCalculation?.discountAmount || 0}</span>
-                        </div>
-                      )}
-
-                      <div className="border-t pt-2">
-                        <div className="flex justify-between items-center">
-                          <span className="font-semibold text-lg">Total Amount</span>
-                          <span className="text-2xl font-bold text-primary">
-                            ₹{priceCalculation?.finalAmount || (calculateSubtotal() + deliveryCharge - (appliedCoupon?.discountAmount || 0))}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className="space-y-2">
-<Button 
-  className="w-full bg-red-600 hover:bg-red-700 text-white" 
-  size="lg"
-  onClick={handleBookNow}
-  disabled={bookingMutation.isPending}
->
-  {bookingMutation.isPending ? "Processing..." : 
-   selectedBookingType === "monthly" ? "Start Monthly Plan" :
-   selectedBookingType === "trial" ? "Book Trial Package" :
-   "Confirm Order"}
-</Button>            
-                    </div>
+                    {/* Desktop action button (mobile uses sticky bottom bar) */}
+                    <Button
+                      className="hidden h-12 w-full lg:flex"
+                      size="lg"
+                      onClick={handleBookNow}
+                      disabled={bookingMutation.isPending}
+                    >
+                      {bookingMutation.isPending
+                        ? "Processing…"
+                        : selectedBookingType === "monthly"
+                        ? "Start Monthly Plan"
+                        : selectedBookingType === "trial"
+                        ? "Book Trial Package"
+                        : "Confirm Order"}
+                    </Button>
                   </>
                 )}
               </CardContent>
@@ -1351,117 +1191,126 @@ export default function TiffinDetail() {
         </div>
       </div>
 
-      {/* Add-ons Dialog */}
-      <Dialog open={isAddOnsDialogOpen} onOpenChange={setIsAddOnsDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Add Extra Items to Your Meal</DialogTitle>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Select additional items to customize your meal. You can adjust quantities for each item.
-            </p>
+      {/* Mobile sticky action bar */}
+      {isAuthenticated && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-background p-3 lg:hidden">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs text-muted-foreground">Total Amount</p>
+              <p className="text-lg font-bold text-primary">{currency(finalAmount)}</p>
+            </div>
+            <Button
+              className="h-12 flex-1"
+              onClick={handleBookNow}
+              disabled={bookingMutation.isPending}
+            >
+              {bookingMutation.isPending
+                ? "Processing…"
+                : selectedBookingType === "monthly"
+                ? "Start Monthly Plan"
+                : selectedBookingType === "trial"
+                ? "Book Trial Package"
+                : "Confirm Order"}
+            </Button>
+          </div>
+        </div>
+      )}
 
-            <div className="space-y-3">
-              {tiffin.addOns?.filter(addOn => addOn.available).map((addOn, index) => {
-                const currentQuantity = getAddOnQuantity(addOn.name);
-                
+      <OffersSheet
+        open={isOffersSheetOpen}
+        onClose={() => setIsOffersSheetOpen(false)}
+        onSelect={applyCoupon}
+      />
+
+      {/* ---------------- Add-ons Dialog ---------------- */}
+      <Dialog open={isAddOnsDialogOpen} onOpenChange={setIsAddOnsDialogOpen}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto rounded-t-3xl p-0 sm:max-w-lg sm:rounded-3xl">
+          <DialogHeader className="space-y-1 border-b px-5 pb-4 pt-5">
+            <DialogTitle className="text-lg font-bold">Add Extra Items</DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              Select extra items and adjust quantities for your meal.
+            </p>
+          </DialogHeader>
+
+          <div className="space-y-3 px-5 pb-4 pt-4">
+            {tiffin.addOns
+              ?.filter((addOn) => addOn.available)
+              .map((addOn) => {
+                const qty = getAddOnQuantity(addOn.name);
                 return (
                   <div
-                    key={index}
-                    className={`border rounded-lg p-4 transition-colors ${
-                      currentQuantity > 0 ? 'border-primary bg-primary/5' : 'border-gray-200'
-                    }`}
+                    key={addOn.name}
+                    className={`rounded-lg border p-3 ${qty > 0 ? "border-primary bg-primary/5" : ""}`}
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h4 className="font-medium">{addOn.name}</h4>
-                          {currentQuantity > 0 && <CheckCircle2 className="w-4 h-4 text-green-600" />}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-sm font-medium">{addOn.name}</h4>
+                          {qty > 0 && <CheckCircle2 className="h-4 w-4 text-green-600" />}
                         </div>
-                        <p className="text-sm text-muted-foreground mb-2">{addOn.description}</p>
-                        <p className="text-sm font-semibold text-primary">+₹{addOn.price} each</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">{addOn.description}</p>
+                        <p className="mt-1 text-sm font-semibold text-primary">+{currency(addOn.price)} each</p>
                       </div>
-                      
-                      <div className="flex items-center gap-3 ml-4">
+
+                      <div className="flex items-center gap-2">
                         <Button
                           variant="outline"
                           size="icon"
-                          onClick={() => updateAddOnQuantity(addOn.name, currentQuantity - 1)}
-                          disabled={currentQuantity === 0}
+                          className="h-9 w-9"
+                          onClick={() => updateAddOnQuantity(addOn.name, qty - 1)}
+                          disabled={qty === 0}
                         >
-                          <Minus className="w-4 h-4" />
+                          <Minus className="h-4 w-4" />
                         </Button>
-                        
-                        <span className={`min-w-8 text-center font-semibold ${
-                          currentQuantity > 0 ? 'text-primary' : 'text-muted-foreground'
-                        }`}>
-                          {currentQuantity}
-                        </span>
-                        
+                        <span className="w-6 text-center font-semibold">{qty}</span>
                         <Button
                           variant="outline"
                           size="icon"
-                          onClick={() => updateAddOnQuantity(addOn.name, currentQuantity + 1)}
+                          className="h-9 w-9"
+                          onClick={() => updateAddOnQuantity(addOn.name, qty + 1)}
                         >
-                          <Plus className="w-4 h-4" />
+                          <Plus className="h-4 w-4" />
                         </Button>
                       </div>
                     </div>
                   </div>
                 );
               })}
-            </div>
 
-            {/* Selected Add-ons Summary */}
-            {selectedAddOns.length > 0 && (
-              <div className="border-t pt-4 mt-4">
-                <h4 className="font-medium mb-2">Selected Items:</h4>
-                <div className="space-y-2">
-                  {selectedAddOns.map((addOn, index) => (
-                    <div key={index} className="flex items-center justify-between text-sm">
-                      <span>{addOn.name} × {addOn.quantity}</span>
-                      <span className="font-medium">₹{addOn.price * addOn.quantity}</span>
-                    </div>
-                  ))}
-                  <div className="flex items-center justify-between border-t pt-2 font-semibold">
-                    <span>Total Add-ons Cost:</span>
-                    <span className="text-primary">
-                      ₹{selectedAddOns.reduce((total, addOn) => total + (addOn.price * addOn.quantity), 0)}
-                    </span>
-                  </div>
+            {hasAddOns && (
+              <div className="border-t pt-3">
+                <div className="flex items-center justify-between font-semibold">
+                  <span>Total Add-ons Cost</span>
+                  <span className="text-primary">{currency(addOnsPrice)}</span>
                 </div>
               </div>
             )}
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsAddOnsDialogOpen(false)}>
+          <DialogFooter className="border-t px-5 pb-5 pt-4">
+            <Button variant="outline" className="h-11" onClick={() => setIsAddOnsDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={() => setIsAddOnsDialogOpen(false)}>
+            <Button className="h-11" onClick={() => setIsAddOnsDialogOpen(false)}>
               Save Selection
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Weekly Customization Dialog */}
+      {/* ---------------- Weekly Customization Dialog ---------------- */}
       <Dialog open={isCustomizationDialogOpen} onOpenChange={setIsCustomizationDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Weekly Customization Options</DialogTitle>
-          </DialogHeader>
-          
-          <div className="space-y-4">
+        <DialogContent className="max-h-[85vh] overflow-y-auto rounded-t-3xl p-0 sm:max-w-lg sm:rounded-3xl">
+          <DialogHeader className="space-y-1 border-b px-5 pb-4 pt-5">
+            <DialogTitle className="text-lg font-bold">Weekly Customization Options</DialogTitle>
             <p className="text-sm text-muted-foreground">
-              Select customizations for your weekly plan. Each customization can be applied to specific days.
+              Pick your days and customize what you get on each one.
             </p>
+          </DialogHeader>
 
-            {/* Day Selection */}
-            <div className="space-y-3">
-              <h4 className="font-medium">Select Days for the Week:</h4>
+          <div className="space-y-4 px-5 pb-4 pt-4">
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium">Select Days</h4>
               <div className="flex flex-wrap gap-2">
                 {DAYS.map((day) => (
                   <Button
@@ -1472,56 +1321,45 @@ export default function TiffinDetail() {
                     disabled={!tiffin.availableDays.includes(day)}
                   >
                     {day}
-                    {selectedDays.includes(day) && <CheckCircle2 className="w-3 h-3 ml-1" />}
+                    {selectedDays.includes(day) && <CheckCircle2 className="ml-1 h-3 w-3" />}
                   </Button>
                 ))}
               </div>
             </div>
 
-            {/* Customization Options */}
             <div className="space-y-3">
-              {tiffin.weeklyCustomizations?.map((customization, index) => {
-                const isSelected = selectedWeeklyCustomizations.some(c => c.name === customization.name);
-                
+              {tiffin.weeklyCustomizations?.map((customization) => {
+                const isSelected = selectedWeeklyCustomizations.some((c) => c.name === customization.name);
                 return (
                   <div
-                    key={index}
-                    className={`border rounded-lg p-4 cursor-pointer transition-colors ${
-                      isSelected ? 'border-primary bg-primary/5' : 'border-gray-200 hover:border-gray-300'
+                    key={customization.name}
+                    className={`cursor-pointer rounded-lg border p-3 ${
+                      isSelected ? "border-primary bg-primary/5" : ""
                     }`}
                     onClick={() => toggleWeeklyCustomization(customization)}
                   >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <Checkbox 
-                            checked={isSelected}
-                            onChange={() => toggleWeeklyCustomization(customization)}
-                          />
-                          <h4 className="font-medium">{customization.name}</h4>
-                          {isSelected && <CheckCircle2 className="w-4 h-4 text-green-600" />}
-                        </div>
-                        <p className="text-sm text-muted-foreground mb-2">{customization.description}</p>
-                        
-                        {/* Available Days for this customization */}
-                        <div className="flex items-center gap-2 mb-2">
+                    <div className="flex items-start gap-2">
+                      <Checkbox checked={isSelected} onChange={() => toggleWeeklyCustomization(customization)} />
+                      <div className="min-w-0 flex-1">
+                        <h4 className="text-sm font-medium">{customization.name}</h4>
+                        <p className="mt-0.5 text-xs text-muted-foreground">{customization.description}</p>
+
+                        <div className="mt-2 flex flex-wrap items-center gap-1">
                           <span className="text-xs font-medium">Available on:</span>
-                          <div className="flex flex-wrap gap-1">
-                            {customization.days.map((day) => (
-                              <Badge 
-                                key={day} 
-                                variant="outline" 
-                                className={`text-xs ${
-                                  selectedDays.includes(day) ? 'bg-green-100 text-green-800' : ''
-                                }`}
-                              >
-                                {day}
-                              </Badge>
-                            ))}
-                          </div>
+                          {customization.days.map((day) => (
+                            <Badge
+                              key={day}
+                              variant="outline"
+                              className={`text-xs ${selectedDays.includes(day) ? "bg-green-100 text-green-800" : ""}`}
+                            >
+                              {day}
+                            </Badge>
+                          ))}
                         </div>
-                        
-                        <p className="text-sm font-semibold text-primary">+₹{customization.price} per selected day</p>
+
+                        <p className="mt-1 text-sm font-semibold text-primary">
+                          +{currency(customization.price)} per selected day
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -1529,306 +1367,197 @@ export default function TiffinDetail() {
               })}
             </div>
 
-            {/* Selected Customizations Summary */}
-            {selectedWeeklyCustomizations.length > 0 && (
-              <div className="border-t pt-4 mt-4">
-                <h4 className="font-medium mb-2">Selected Customizations:</h4>
-                <div className="space-y-2">
-                  {selectedWeeklyCustomizations.map((custom, index) => {
-                    const applicableDays = custom.days.filter(day => selectedDays.includes(day));
-                    const totalCost = custom.price * applicableDays.length;
-                    
-                    return (
-                      <div key={index} className="text-sm">
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium">{custom.name}</span>
-                          <span>+₹{custom.price} per day</span>
-                        </div>
-                        <div className="flex items-center justify-between text-muted-foreground">
-                          <span>Applied to: {applicableDays.join(", ")}</span>
-                          <span>₹{totalCost} total</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <div className="flex items-center justify-between border-t pt-2 font-semibold">
-                    <span>Total Customization Cost:</span>
-                    <span className="text-primary">
-                      ₹{selectedWeeklyCustomizations.reduce((total, custom) => {
-                        return total + (custom.price * custom.days.filter(day => selectedDays.includes(day)).length);
-                      }, 0)}
-                    </span>
-                  </div>
+            {hasWeeklyCustomizations && (
+              <div className="space-y-2 border-t pt-3">
+                {selectedWeeklyCustomizations.map((custom) => {
+                  const applicableDays = custom.days.filter((day) => selectedDays.includes(day));
+                  return (
+                    <div key={custom.name} className="text-sm">
+                      <Row label={custom.name} value={`+${currency(custom.price)}/day`} />
+                      <p className="text-xs text-muted-foreground">Applied to: {applicableDays.join(", ")}</p>
+                    </div>
+                  );
+                })}
+                <div className="flex items-center justify-between border-t pt-2 font-semibold">
+                  <span>Total Customization Cost</span>
+                  <span className="text-primary">{currency(weeklyCustomizationsPrice)}</span>
                 </div>
               </div>
             )}
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCustomizationDialogOpen(false)}>
+          <DialogFooter className="border-t px-5 pb-5 pt-4">
+            <Button variant="outline" className="h-11" onClick={() => setIsCustomizationDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={() => setIsCustomizationDialogOpen(false)}>
+            <Button className="h-11" onClick={() => setIsCustomizationDialogOpen(false)}>
               Save Customizations
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-{/* Booking Confirmation Dialog */}
-<Dialog open={isBookingDialogOpen} onOpenChange={setIsBookingDialogOpen}>
-  <DialogContent>
-    <DialogHeader>
-      <DialogTitle>Confirm Your Order</DialogTitle>
-    </DialogHeader>
-    
-    <div className="space-y-4">
-      <div className="bg-muted rounded-lg p-4">
-        <h4 className="font-medium mb-2">Order Summary:</h4>
-        <div className="space-y-1 text-sm">
-          <div className="flex justify-between">
-            <span>Service:</span>
-            <span>{tiffin.title}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Date:</span>
-            <span>{selectedDate}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Time Slot:</span>
-            <span>{selectedSlot}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Booking Type:</span>
-            <span className="capitalize">{selectedBookingType}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Quantity:</span>
-            <span>{quantity}</span>
-          </div>
-          {selectedAddOns.length > 0 && (
-            <div className="flex justify-between">
-              <span>Add-ons:</span>
-              <span>{selectedAddOns.reduce((sum, a) => sum + a.quantity, 0)} items</span>
-            </div>
-          )}
-          {selectedWeeklyCustomizations.length > 0 && (
-            <div className="flex justify-between">
-              <span>Customizations:</span>
-              <span>{selectedWeeklyCustomizations.length} selected</span>
-            </div>
-          )}
-          {/* Delivery Charge - FREE if coupon applied */}
-{appliedCoupon || deliveryCharge === 0 ? (
-  <div className="flex justify-between items-center text-green-600">
-    <span className="text-muted-foreground">Delivery Charge</span>
-    <span className="font-semibold">FREE</span>
-  </div>
-) : (
-  <div className="flex justify-between items-center">
-    <span className="text-muted-foreground">Delivery Charge</span>
-    <span>+₹{deliveryCharge}</span>
-  </div>
-)}
-          {appliedCoupon && (
-            <div className="flex justify-between text-green-600">
-              <span>Coupon Applied:</span>
-              <span>{appliedCoupon.coupon?.code} (-₹{priceCalculation?.discountAmount || 0})</span>
-            </div>
-          )}
-          <div className="border-t pt-1 mt-1">
-            <div className="flex justify-between font-semibold">
-              <span>Total Amount:</span>
-              <span className="text-primary">₹{priceCalculation?.finalAmount || 0}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Payment Method Selection */}
-      <div className="space-y-3">
-        <h4 className="font-medium">Select Payment Method:</h4>
-        <div className="grid grid-cols-1 gap-3">
-          {/* UPI Option */}
-          <div 
-            className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
-              selectedPaymentMethod === "upi" 
-                ? "border-primary bg-primary/5" 
-                : "border-gray-200 hover:border-gray-300"
-            }`}
-            onClick={() => setSelectedPaymentMethod("upi")}
-          >
-            <div className="flex items-center gap-3">
-              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                selectedPaymentMethod === "upi" ? "border-primary bg-primary" : "border-gray-300"
-              }`}>
-                {selectedPaymentMethod === "upi" && (
-                  <div className="w-2 h-2 rounded-full bg-white"></div>
-                )}
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <CreditCard className="w-5 h-5 text-green-600" />
-                  <p className="font-semibold">UPI Payment</p>
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Seller will come to your location and collect payment via UPI. Please have your UPI app ready.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* COD Option */}
-          <div 
-            className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
-              selectedPaymentMethod === "cod" 
-                ? "border-primary bg-primary/5" 
-                : "border-gray-200 hover:border-gray-300"
-            }`}
-            onClick={() => setSelectedPaymentMethod("cod")}
-          >
-            <div className="flex items-center gap-3">
-              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                selectedPaymentMethod === "cod" ? "border-primary bg-primary" : "border-gray-300"
-              }`}>
-                {selectedPaymentMethod === "cod" && (
-                  <div className="w-2 h-2 rounded-full bg-white"></div>
-                )}
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <Wallet className="w-5 h-5 text-orange-600" />
-                  <p className="font-semibold">Cash on Delivery (COD)</p>
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Pay cash when seller delivers your order. Please keep exact change ready.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Payment Method Instructions */}
-        {selectedPaymentMethod === "cod" && (
-          <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
-            <div className="flex items-start gap-3">
-              <div className="w-2 h-2 bg-orange-500 rounded-full mt-2 flex-shrink-0"></div>
-              <div>
-                <p className="text-sm font-medium text-orange-800">
-                  💵 Cash on Delivery Selected
-                </p>
-                <p className="text-xs text-orange-700 mt-1">
-                  Seller will collect <span className="font-semibold">₹{priceCalculation?.finalAmount || 0}</span> in cash when delivering your order.
-                  Please keep exact change ready for smooth transaction.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {selectedPaymentMethod === "upi" && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-            <div className="flex items-start gap-3">
-              <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></div>
-              <div>
-                <p className="text-sm font-medium text-green-800">
-                  📱 UPI Payment Selected
-                </p>
-                <p className="text-xs text-green-700 mt-1">
-                  Seller will collect <span className="font-semibold">₹{priceCalculation?.finalAmount || 0}</span> via UPI when delivering your order.
-                  Please have your UPI app (Google Pay, PhonePe, Paytm, etc.) ready with sufficient balance.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {customInstructions && (
-        <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
-          <h4 className="font-medium text-sm mb-1">Special Instructions:</h4>
-          <p className="text-sm text-blue-800">{customInstructions}</p>
-        </div>
-      )}
-    </div>
-
-    <DialogFooter className="gap-2 sm:gap-0 flex-col sm:flex-row">
-      <Button 
-        variant="outline" 
-        onClick={() => setIsBookingDialogOpen(false)}
-        className="w-full sm:w-auto"
-      >
-        Cancel Order
-      </Button>
-      
-      {/* Payment Method Specific Buttons */}
-      {selectedPaymentMethod === "upi" && (
-        <Button 
-          onClick={confirmBooking} 
-          disabled={bookingMutation.isPending}
-          className="w-full sm:w-auto bg-green-600 hover:bg-green-700"
-        >
-          <Scan className="w-4 h-4 mr-2" />
-          {bookingMutation.isPending ? "Processing..." : "Confirm UPI Order"}
-        </Button>
-      )}
-      
-      {selectedPaymentMethod === "cod" && (
-        <Button 
-          onClick={confirmBooking} 
-          disabled={bookingMutation.isPending}
-          className="w-full sm:w-auto bg-orange-600 hover:bg-orange-700"
-        >
-          <Wallet className="w-4 h-4 mr-2" />
-          {bookingMutation.isPending ? "Processing..." : "Confirm COD Order"}
-        </Button>
-      )}
-    </DialogFooter>
-  </DialogContent>
-</Dialog>
-
-      {/* QR Scanner Dialog */}
-      <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Scan QR Code to Pay</DialogTitle>
+      {/* ---------------- Booking Confirmation Dialog ---------------- */}
+      <Dialog open={isBookingDialogOpen} onOpenChange={setIsBookingDialogOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto rounded-t-3xl p-0 sm:max-w-md sm:rounded-3xl">
+          <DialogHeader className="space-y-1 border-b px-5 pb-4 pt-5">
+            <DialogTitle className="text-lg font-bold">Confirm Your Order</DialogTitle>
+            <p className="text-sm text-muted-foreground">Review the details before you place your order.</p>
           </DialogHeader>
-          
-          <div className="text-center space-y-4">
-            <div className="bg-muted rounded-lg aspect-square max-w-xs mx-auto flex items-center justify-center">
-              <div className="text-center">
-                <Scan className="w-16 h-16 mx-auto mb-4 text-primary" />
-                <p className="text-sm text-muted-foreground">Scanning QR Code...</p>
+
+          <div className="space-y-4 px-5 pb-4 pt-4">
+            <div className="space-y-1 rounded-lg bg-muted p-3 text-sm">
+              <Row label="Service" value={tiffin.title} />
+              <Row label="Date" value={selectedDate} />
+              <Row label="Time Slot" value={selectedSlot || "Flexible"} />
+              <Row label="Booking Type" value={selectedBookingType} />
+              <Row label="Quantity" value={String(quantity)} />
+              {hasAddOns && (
+                <Row label="Add-ons" value={`${selectedAddOns.reduce((s, a) => s + a.quantity, 0)} items`} />
+              )}
+              {hasWeeklyCustomizations && (
+                <Row label="Customizations" value={`${selectedWeeklyCustomizations.length} selected`} />
+              )}
+              {deliveryCharge === 0 || appliedCoupon ? (
+                <Row label="Delivery Charge" value="FREE" valueClassName="font-semibold text-green-600" />
+              ) : (
+                <Row label="Delivery Charge" value={`+${currency(deliveryCharge)}`} />
+              )}
+              {appliedCoupon && (
+                <Row
+                  label="Coupon"
+                  value={`${appliedCoupon.coupon?.code} (-${currency(priceCalculation?.discountAmount ?? 0)})`}
+                  valueClassName="text-green-600"
+                />
+              )}
+              <div className="flex items-center justify-between border-t pt-2 font-semibold">
+                <span>Total Amount</span>
+                <span className="text-primary">{currency(priceCalculation?.finalAmount ?? 0)}</span>
               </div>
             </div>
-            
-            <div className="space-y-2">
-              <p className="font-semibold">Total Amount: ₹{priceCalculation?.finalAmount || 0}</p>
-              <p className="text-sm text-muted-foreground">
-                Please scan the QR code with your UPI app to complete the payment
-              </p>
-            </div>
+
+            <PaymentMethodSelector
+              value={selectedPaymentMethod}
+              onChange={setSelectedPaymentMethod}
+              finalAmount={priceCalculation?.finalAmount ?? 0}
+            />
+
+            {customInstructions && (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+                <h4 className="mb-1 text-sm font-medium">Special Instructions</h4>
+                <p className="text-sm text-blue-800">{customInstructions}</p>
+              </div>
+            )}
           </div>
+
+          <DialogFooter className="flex-col gap-2 border-t px-5 pb-5 pt-4 sm:flex-row sm:gap-0">
+            <Button variant="outline" className="h-11 w-full sm:w-auto" onClick={() => setIsBookingDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button className="h-11 w-full sm:w-auto" onClick={confirmBooking} disabled={bookingMutation.isPending}>
+              {selectedPaymentMethod === "upi" ? (
+                <CreditCard className="mr-2 h-4 w-4" />
+              ) : (
+                <Wallet className="mr-2 h-4 w-4" />
+              )}
+              {bookingMutation.isPending
+                ? "Processing…"
+                : selectedPaymentMethod === "upi"
+                ? "Confirm UPI Order"
+                : "Confirm COD Order"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
   );
 }
 
+// ---------------------------------------------------------------------------
+// Small shared UI blocks
+// ---------------------------------------------------------------------------
 
+function WeekAvailability({ availableDays }: { availableDays: string[] }) {
+  return (
+    <div className="grid grid-cols-7 gap-1.5">
+      {DAYS.map((day) => {
+        const isAvailable = availableDays.includes(day);
+        return (
+          <div
+            key={day}
+            className={`flex flex-col items-center justify-center rounded-md border py-1.5 text-center ${
+              isAvailable
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-dashed text-muted-foreground/50"
+            }`}
+          >
+            <span className="text-[11px] font-semibold">{day.slice(0, 3)}</span>
+            {isAvailable && <CheckCircle2 className="mt-0.5 h-3 w-3" />}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
+function TimeSlotList({ slots }: { slots: string[] }) {
+  const [showAll, setShowAll] = useState(false);
+  const VISIBLE_LIMIT = 6;
 
+  const visibleSlots = showAll ? slots : slots.slice(0, VISIBLE_LIMIT);
+  const hiddenCount = slots.length - VISIBLE_LIMIT;
 
+  if (slots.length === 0) {
+    return <p className="text-sm text-muted-foreground">No time slots available.</p>;
+  }
 
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {visibleSlots.map((slot) => (
+          <div
+            key={slot}
+            className="flex items-center justify-center rounded-md border bg-muted/40 px-2 py-1.5 text-center text-xs font-medium"
+          >
+            {slot.replace(" - ", " – ")}
+          </div>
+        ))}
+      </div>
 
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowAll((v) => !v)}
+          className="text-xs font-medium text-primary"
+        >
+          {showAll ? "Show less" : `+${hiddenCount} more slots`}
+        </button>
+      )}
+    </div>
+  );
+}
 
-
-
-
-
-
-
-
-
-
-
+function InfoPanel({
+  title,
+  actionLabel,
+  onAction,
+  children,
+}: {
+  title: string;
+  actionLabel: string;
+  onAction: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border bg-muted/30 p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-sm font-medium">{title}</p>
+        <Button variant="outline" size="sm" onClick={onAction}>
+          <Plus className="mr-1 h-3.5 w-3.5" />
+          {actionLabel}
+        </Button>
+      </div>
+      <div className="space-y-1">{children}</div>
+    </div>
+  );
+}

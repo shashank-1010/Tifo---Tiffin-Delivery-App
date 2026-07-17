@@ -174,6 +174,17 @@ export default function MyBookings() {
             <p className="text-sm sm:text-base text-gray-600">
               Track your tiffin orders
             </p>
+            {bookings.some((b: any) => b.bookingType === "weekly" || b.bookingType === "monthly") && (
+              <Button
+                onClick={() => setLocation("/my-subscriptions")}
+                variant="outline"
+                size="sm"
+                className="mt-3 bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100 hover:text-purple-800 rounded-full"
+              >
+                <Calendar className="w-4 h-4 mr-2" />
+                View My Subscriptions
+              </Button>
+            )}
           </div>
 
           {/* Stats Cards - Mobile Grid */}
@@ -354,6 +365,21 @@ const totalAmount = booking.totalPrice;
                         </Badge>
                       )}
                     </div>
+
+                    {/* Manage Subscription - weekly/monthly bookings only */}
+                    {(booking.bookingType === "weekly" || booking.bookingType === "monthly") && (
+                      <div className="mt-3 pt-3 border-t border-gray-200">
+                        <Button
+                          onClick={() => setLocation(`/my-bookings/${booking._id}/subscription`)}
+                          variant="outline"
+                          size="sm"
+                          className="w-full bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100 hover:text-purple-800"
+                        >
+                          <Calendar className="w-4 h-4 mr-2" />
+                          Manage Subscription
+                        </Button>
+                      </div>
+                    )}
 
                     {/* Rating Section */}
                     {renderAlreadyRated(booking)}

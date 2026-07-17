@@ -7,10 +7,13 @@ import { storage } from "./storage";
 import { authenticateToken, requireRole, type AuthRequest } from "./middleware/auth";
 import {
   sendBookingConfirmationToCustomer,
-  sendBookingNotificationToSeller,
+  sendOrderNotificationToSeller,
+  sendPasswordResetOTP,
+  sendOrderCancellationToSeller,
+  sendOrderStatusUpdateToCustomer,
   sendSellerStatusUpdate,
-} from "./services/email";
-import { sendOrderNotificationToSeller , sendPasswordResetOTP , sendOrderCancellationToSeller} from './emailService';
+} from './emailService';
+import { withLiveStatus } from "./services/deliveryScheduleService";
 
 
 // ✅ ADD THESE IMPORTS AT THE TOP
@@ -253,15 +256,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const { email, password , turnstileToken } = req.body;
+      const { email, password} = req.body;
 
-       // Turnstile verify karo
-  const isHuman = await verifyTurnstile(turnstileToken);
-  if (!isHuman) {
-    return res.status(400).json({ 
-      message: "Security verification failed. Please try again." 
-    });
-  }
+       
 
       // Get user from database
       const user = await storage.getUserByEmail(email);
@@ -810,8 +807,12 @@ try {
                 booking.slot,
                 booking.quantity,
                 booking.totalPrice,
-                booking.discountAmount || 0, 
-                booking.couponCode || null 
+                booking.discountAmount || 0,
+                booking.couponCode || null,
+                booking.addOns || [],
+                booking.weeklyCustomizations || [],
+                booking.selectedDays || [],
+                booking.customization || ""
               ),
               "booking confirmation to customer"
             );
@@ -828,6 +829,339 @@ try {
     res.status(500).json({ message: error.message });
   }
 });
+
+  // ============================================================
+  // ✅ NEW: SUBSCRIPTION (weekly/monthly tiffin) DELIVERY SCHEDULE
+  // ============================================================
+
+  // Get the day-by-day delivery schedule for one weekly/monthly subscription booking.
+  // Each day's status ("Pending" / "Delivered" / "Missed") is computed live against
+  // today's date, so it updates automatically as days pass — nothing here is static.
+  app.get("/api/bookings/:id/schedule", authenticateToken, async (req: AuthRequest, res) => {
+    try {
+      const booking = await storage.getBookingWithDetailsById(req.params.id);
+
+      if (!booking) {
+        return res.status(404).json({ message: "Booking not found" });
+      }
+
+      if (booking.customerId?.toString() !== req.userId?.toString()) {
+        return res.status(403).json({ message: "Not authorized to view this subscription" });
+      }
+
+      if (booking.bookingType !== "weekly" && booking.bookingType !== "monthly") {
+        return res.status(400).json({ message: "This booking is not a weekly/monthly subscription" });
+      }
+
+      const liveSchedule = withLiveStatus((booking as any).deliverySchedule || [], booking.status);
+
+      res.json({
+        ...booking,
+        deliverySchedule: liveSchedule,
+      });
+    } catch (error: any) {
+      console.error("❌ Error fetching subscription schedule:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Customer rates one already-delivered day of their subscription
+  app.patch("/api/bookings/:id/schedule/:entryId/rate", authenticateToken, [
+    body("rating").isInt({ min: 1, max: 5 }),
+    body("comment").optional().isLength({ max: 500 }),
+  ], async (req: AuthRequest, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    try {
+      const booking = await storage.getBooking(req.params.id);
+      if (!booking) {
+        return res.status(404).json({ message: "Booking not found" });
+      }
+
+      if (booking.customerId?.toString() !== req.userId?.toString()) {
+        return res.status(403).json({ message: "Not authorized to rate this subscription" });
+      }
+
+      const liveSchedule = withLiveStatus((booking as any).deliverySchedule || [], booking.status);
+      const entry = liveSchedule.find((d: any) => d._id?.toString() === req.params.entryId);
+
+      if (!entry) {
+        return res.status(404).json({ message: "Delivery day not found" });
+      }
+
+      if (entry.status !== "Delivered") {
+        return res.status(400).json({ message: "You can only rate a day that has been delivered" });
+      }
+
+      if (entry.rating) {
+        return res.status(400).json({ message: "You've already rated this day" });
+      }
+
+      const { rating, comment } = req.body;
+      const updatedBooking = await storage.rateDeliveryDay(req.params.id, req.params.entryId, rating, comment);
+
+      if (!updatedBooking) {
+        return res.status(404).json({ message: "Delivery day not found" });
+      }
+
+      res.json({
+        ...updatedBooking,
+        deliverySchedule: withLiveStatus((updatedBooking as any).deliverySchedule || [], updatedBooking.status),
+      });
+    } catch (error: any) {
+      console.error("❌ Error rating delivery day:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ✅ NEW: Customer's own weekly/monthly subscriptions only — powers the
+  // dedicated "My Subscriptions" page (separate from the mixed My Orders list).
+  app.get("/api/bookings/customer/subscriptions", authenticateToken, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUserById(req.userId!);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      const subscriptions = await storage.getSubscriptionBookingsByEmail(user.email);
+      const withSchedules = subscriptions.map((booking) => ({
+        ...booking,
+        deliverySchedule: withLiveStatus((booking as any).deliverySchedule || [], booking.status),
+      }));
+
+      res.json(withSchedules);
+    } catch (error: any) {
+      console.error("❌ Error fetching customer subscriptions:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============================================================
+  // ✅ NEW: SELLER — MANAGE CUSTOMER SUBSCRIPTIONS
+  // ============================================================
+
+  // All weekly/monthly subscriptions booked with this seller, each with the
+  // customer's day-by-day delivery schedule attached.
+  app.get("/api/seller/subscriptions", authenticateToken, requireRole("seller"), async (req: AuthRequest, res) => {
+    try {
+      const seller = await storage.getSellerByUserId(req.userId!);
+      if (!seller) {
+        return res.status(404).json({ message: "Seller not found" });
+      }
+
+      const subscriptions = await storage.getSubscriptionBookingsBySellerId(seller._id);
+      const withSchedules = subscriptions.map((booking) => ({
+        ...booking,
+        deliverySchedule: withLiveStatus((booking as any).deliverySchedule || [], booking.status),
+      }));
+
+      res.json(withSchedules);
+    } catch (error: any) {
+      console.error("❌ Error fetching seller subscriptions:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Seller manually sets the status of one customer's delivery day
+  // (e.g. mark today's tiffin as Delivered, or mark a day as Missed).
+  app.patch(
+    "/api/seller/subscriptions/:bookingId/schedule/:entryId/status",
+    authenticateToken,
+    requireRole("seller"),
+    [body("status").isIn(["Pending", "Delivered", "Missed"])],
+    async (req: AuthRequest, res) => {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      try {
+        const seller = await storage.getSellerByUserId(req.userId!);
+        if (!seller) {
+          return res.status(404).json({ message: "Seller not found" });
+        }
+
+        const booking = await storage.getBooking(req.params.bookingId);
+        if (!booking) {
+          return res.status(404).json({ message: "Booking not found" });
+        }
+
+        if (booking.sellerId?.toString() !== seller._id?.toString()) {
+          return res.status(403).json({ message: "Not authorized to manage this subscription" });
+        }
+
+        if (booking.bookingType !== "weekly" && booking.bookingType !== "monthly") {
+          return res.status(400).json({ message: "This booking is not a weekly/monthly subscription" });
+        }
+
+        const updatedBooking = await storage.updateDeliveryDayStatus(
+          req.params.bookingId,
+          req.params.entryId,
+          req.body.status
+        );
+
+        if (!updatedBooking) {
+          return res.status(404).json({ message: "Delivery day not found" });
+        }
+
+        res.json({
+          ...updatedBooking,
+          deliverySchedule: withLiveStatus((updatedBooking as any).deliverySchedule || [], updatedBooking.status),
+        });
+      } catch (error: any) {
+        console.error("❌ Error updating delivery day status:", error);
+        res.status(500).json({ message: error.message });
+      }
+    }
+  );
+
+  // ✅ NEW: Cart checkout — turns every item in the cart into a booking in one payout.
+  // Platform has a single meal provider, so every item shares the same sellerId.
+  // Each cart item becomes its own Booking row (same shape as /api/bookings) tagged
+  // with a shared cartOrderId, so they all land in the seller dashboard together.
+  app.post("/api/cart/checkout", authenticateToken, async (req: AuthRequest, res) => {
+    try {
+      const { items, paymentMethod } = req.body as {
+        items: Array<{
+          tiffinId: string;
+          sellerId: string;
+          date: string;
+          slot: string;
+          quantity: number;
+          bookingType: "single" | "trial" | "weekly" | "monthly";
+          basePrice: number;
+          addOnsPrice?: number;
+          deliveryCharge?: number;
+          discountAmount?: number;
+          totalPrice: number;
+          addOns?: any[];
+          weeklyCustomizations?: any[];
+          selectedDays?: string[];
+          customization?: string;
+          couponCode?: string;
+        }>;
+        paymentMethod: "cod" | "upi";
+      };
+
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ message: "Cart is empty" });
+      }
+
+      const user = await storage.getUserById(req.userId!);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      const finalPaymentMethod = paymentMethod === "upi" ? "upi" : "cod";
+      const cartOrderId = new ObjectId().toString();
+
+      const createdBookings = [];
+      for (const item of items) {
+        const bookingData = {
+          tiffinId: item.tiffinId,
+          sellerId: item.sellerId,
+          customerId: req.userId,
+          customerName: user.name,
+          customerEmail: user.email,
+          customerPhone: user.phone,
+          customerAddress: user.address,
+          customerCity: user.city,
+          deliveryAddress: user.address,
+          date: item.date,
+          slot: item.slot,
+          quantity: item.quantity,
+          bookingType: item.bookingType,
+          basePrice: item.basePrice || 0,
+          addOnsPrice: item.addOnsPrice || 0,
+          deliveryCharge: item.deliveryCharge || 0,
+          discountAmount: item.discountAmount || 0,
+          totalPrice: item.totalPrice,
+          couponCode: item.couponCode,
+          couponDiscount: item.discountAmount || 0,
+          addOns: item.addOns || [],
+          weeklyCustomizations: item.weeklyCustomizations || [],
+          selectedDays: item.selectedDays || [],
+          customization: item.customization || "",
+          paymentMethod: finalPaymentMethod,
+          cartOrderId,
+        };
+
+        const booking = await storage.createBooking(bookingData as any);
+        createdBookings.push(booking);
+
+        if (item.couponCode && (item.discountAmount || 0) > 0) {
+          await storage.incrementCouponUsage(item.couponCode);
+        }
+      }
+
+      // Best-effort seller notification for the whole cart order — never blocks checkout
+      try {
+        const firstTiffin = await storage.getTiffinById(items[0].tiffinId);
+        if (firstTiffin) {
+          const seller = await storage.getSellerById(firstTiffin.sellerId);
+          if (seller) {
+            const sellerUser = await storage.getUserById(seller.userId);
+            if (sellerUser) {
+              const cartTotal = createdBookings.reduce((sum, b: any) => sum + (b.totalPrice || 0), 0);
+              const sellerDashboardLink = `${process.env.FRONTEND_URL || 'http://localhost:5000'}/seller/dashboard`;
+              const cartTiffinLabel = `Cart order (${createdBookings.length} item${createdBookings.length > 1 ? "s" : ""})`;
+
+              await sendOrderNotificationToSeller(sellerUser.email, {
+                customerName: user.name,
+                customerEmail: user.email,
+                customerPhone: user.phone,
+                customerAddress: user.address,
+                customerCity: user.city,
+                tiffinTitle: cartTiffinLabel,
+                bookingType: "single",
+                quantity: createdBookings.length,
+                totalPrice: cartTotal,
+                deliveryDate: items[0].date,
+                slot: items[0].slot,
+                deliveryAddress: user.address,
+                orderId: cartOrderId.slice(-8),
+                discountAmount: 0,
+                couponCode: null,
+                subtotal: cartTotal,
+              }, sellerDashboardLink);
+
+              // ✅ Customer confirmation for the cart order (was previously missing)
+              await sendEmailSafely(
+                () => sendBookingConfirmationToCustomer(
+                  user.email,
+                  user.name,
+                  cartTiffinLabel,
+                  seller.shopName || sellerUser.name,
+                  seller.contactNumber,
+                  items[0].date,
+                  items[0].slot,
+                  createdBookings.length,
+                  cartTotal,
+                  0,
+                  null,
+                  [],
+                  [],
+                  [],
+                  ""
+                ),
+                "booking confirmation to customer (cart order)"
+              );
+            }
+          }
+        }
+      } catch (notifyError) {
+        console.warn("⚠️ Cart order notification failed, but bookings were created:", notifyError);
+      }
+
+      res.status(201).json({ cartOrderId, bookings: createdBookings });
+    } catch (error: any) {
+      console.error("❌ Error checking out cart:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
 
 app.post("/api/reviews", authenticateToken, [
   body("sellerId").notEmpty(),
@@ -1283,13 +1617,19 @@ app.put("/api/seller/bookings/:id", authenticateToken, async (req: AuthRequest, 
 
     console.log("✅ Booking status updated successfully:", updatedBooking);
       
-      // Send email notifications safely
+      // Send status update email to the customer safely
       try {
-        const user = await storage.getUserById(req.userId!);
-        if (user) {
+        if (booking.customerEmail) {
+          const tiffin = await storage.getTiffinById(booking.tiffinId);
           await sendEmailSafely(
-            () => sendBookingConfirmationToCustomer(booking.customerEmail, booking.customerName, updatedBooking),
-            "booking confirmation"
+            () => sendOrderStatusUpdateToCustomer(
+              booking.customerEmail,
+              booking.customerName,
+              tiffin?.title || "Your Tiffo order",
+              booking._id.toString().slice(-8),
+              status
+            ),
+            "order status update to customer"
           );
         }
       } catch (emailError) {
@@ -1481,6 +1821,7 @@ app.post("/api/bookings/:id/cancel", authenticateToken, async (req: AuthRequest,
               sellerEmail,
               seller.shopName || 'Seller',
               booking.customerName,
+              booking.customerPhone,
               tiffinTitle,
               booking._id.toString().slice(-8), // Short order ID
               new Date(booking.createdAt).toLocaleString('en-IN'),

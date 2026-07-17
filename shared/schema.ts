@@ -68,7 +68,6 @@ export const insertUserSchema = z.object({
 export const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
   password: z.string().min(1, "Password is required"),
-  recaptchaToken: z.string().optional() // Yeh line add karo
 });
 
 export type User = z.infer<typeof userSchema>;
@@ -223,6 +222,21 @@ export type Coupon = z.infer<typeof couponSchema>;
 export type InsertCoupon = z.infer<typeof insertCouponSchema>;
 export type ApplyCoupon = z.infer<typeof applyCouponSchema>;
 
+// ✅ NEW: One scheduled delivery day inside a weekly/monthly subscription booking.
+// Status is computed live on the server (not a static stored value) — see
+// server/services/deliveryScheduleService.ts.
+export const deliveryDaySchema = z.object({
+  _id: z.string(),
+  date: z.string(),
+  day: z.string(),
+  status: z.enum(["Pending", "Delivered", "Missed"]),
+  rating: z.number().min(1).max(5).optional(),
+  review: z.string().optional(),
+  ratedAt: z.string().optional(),
+});
+
+export type DeliveryDay = z.infer<typeof deliveryDaySchema>;
+
 // ✅ UPDATED: Booking Schema with Price Breakdown
 export const bookingSchema = z.object({
   _id: z.string(),
@@ -263,6 +277,8 @@ export const bookingSchema = z.object({
   addOns: z.array(bookingAddOnSchema).optional().default([]),
   weeklyCustomizations: z.array(weeklyCustomizationSchema).optional().default([]),
   selectedDays: z.array(z.string()).optional().default([]),
+  // ✅ NEW: per-day delivery tracking for weekly/monthly subscriptions
+  deliverySchedule: z.array(deliveryDaySchema).optional().default([]),
   createdAt: z.string(),
 });
 
@@ -689,17 +705,3 @@ export const resetPasswordSchema = z.object({
 export type ForgotPasswordData = z.infer<typeof forgotPasswordSchema>;
 export type VerifyOTPData = z.infer<typeof verifyOTPSchema>;
 export type ResetPasswordData = z.infer<typeof resetPasswordSchema>;
-
-// Export all types for easy import
-export * from "./schema"; 
-
-
-
-
-
-
-
-
-
-
-

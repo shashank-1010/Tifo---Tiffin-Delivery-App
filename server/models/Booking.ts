@@ -12,6 +12,19 @@ export interface IWeeklyCustomizationBooking {
   days: string[];
 }
 
+// ✅ NEW: One entry per scheduled delivery day for a "weekly"/"monthly" subscription booking.
+// Generated once when the subscription is booked, then the "status" of each entry is
+// recomputed live (not stored) every time the schedule is fetched, based on today's date —
+// so it always reflects reality instead of being a static snapshot.
+export interface IDeliveryDay {
+  date: Date;
+  day: string; // e.g. "Monday"
+  status: "Pending" | "Delivered" | "Missed"; // default/persisted fallback, recomputed on read
+  rating?: number;
+  review?: string;
+  ratedAt?: Date;
+}
+
 export interface IBooking extends Document {
   customerId: mongoose.Types.ObjectId;
   customerName: string;
@@ -39,13 +52,23 @@ export interface IBooking extends Document {
   
   status: "Pending" | "Confirmed" | "Cancelled" | "Delivered";
   bookingType: "single" | "trial" | "weekly" | "monthly";
-  
+
+  // ✅ NEW: Payment method chosen at checkout (cash on delivery vs online/UPI)
+  paymentMethod: "cod" | "upi";
+  paymentMethod: "cod" | "upi";
+
+  // ✅ NEW: Cart checkout tracking - groups multiple items placed together in one payout
+  cartOrderId?: string;
+
   // Add-ons and customizations for booking
   addOns: ISelectedAddOn[];
   weeklyCustomizations: IWeeklyCustomizationBooking[];
   selectedDays: string[];
   customization?: string;
-  
+
+  // ✅ NEW: Per-day delivery tracking for weekly/monthly subscriptions
+  deliverySchedule: IDeliveryDay[];
+
   createdAt: Date;
 }
 
@@ -59,6 +82,16 @@ const WeeklyCustomizationBookingSchema = new Schema({
   name: { type: String, required: true },
   price: { type: Number, required: true },
   days: [{ type: String, required: true }]
+});
+
+// ✅ NEW: Delivery day sub-schema for weekly/monthly subscriptions
+const DeliveryDaySchema = new Schema({
+  date: { type: Date, required: true },
+  day: { type: String, required: true },
+  status: { type: String, enum: ["Pending", "Delivered", "Missed"], default: "Pending" },
+  rating: { type: Number, min: 1, max: 5 },
+  review: { type: String, maxlength: 500 },
+  ratedAt: { type: Date },
 });
 
 const BookingSchema = new Schema<IBooking>(
@@ -90,11 +123,23 @@ const BookingSchema = new Schema<IBooking>(
     status: { type: String, enum: ["Pending", "Confirmed", "Cancelled", "Delivered"], default: "Pending" },
     bookingType: { type: String, enum: ["single", "trial", "weekly", "monthly"], required: true },
 
+    // ✅ NEW: Payment method (this was previously missing from the schema,
+    // so it was silently dropped by Mongoose and never saved to the DB —
+    // that's why COD orders weren't showing correctly on the seller dashboard)
+    paymentMethod: { type: String, enum: ["cod", "upi"], default: "upi" },
+    paymentMethod: { type: String, enum: ["cod", "upi"], default: "cod" },
+
+    // ✅ NEW: groups bookings that were placed together from the cart in one payout
+    cartOrderId: { type: String },
+
     // Add-ons and customizations
     addOns: [SelectedAddOnSchema],
     weeklyCustomizations: [WeeklyCustomizationBookingSchema],
     selectedDays: [{ type: String }],
-    customization: { type: String }
+    customization: { type: String },
+
+    // ✅ NEW: Per-day delivery tracking for weekly/monthly subscriptions
+    deliverySchedule: [DeliveryDaySchema],
   },
   { timestamps: true }
 );

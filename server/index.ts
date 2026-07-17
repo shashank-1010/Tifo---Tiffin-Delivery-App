@@ -43,7 +43,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-// 3. Body parser with limits
+// 3. Body parser with limits (PEHLE BODY PARSER)
 app.use(express.json({ 
   limit: '10kb'
 }));
@@ -51,6 +51,21 @@ app.use(express.urlencoded({
   extended: false, 
   limit: '10kb' 
 }));
+
+// ✅ TURNSTILE BYPASS MIDDLEWARE - BODY PARSER KE BAAD (YAHAN SAHI JAGAH HAI)
+app.use((req: Request, res: Response, next: NextFunction) => {
+  // Login aur register routes ke liye turnstileToken hatao
+  if (req.path === '/api/auth/login' || req.path === '/api/auth/register') {
+    if (req.body && req.body.turnstileToken) {
+      console.log('🔧 Removing turnstileToken from request:', req.body.turnstileToken);
+      delete req.body.turnstileToken;
+      console.log('✅ turnstileToken removed, body now:', req.body);
+    } else {
+      console.log('ℹ️ No turnstileToken found in request body');
+    }
+  }
+  next();
+});
 
 // 4. Data sanitization against NoSQL injection
 app.use(mongoSanitize());
@@ -86,7 +101,7 @@ app.use('/api/auth/register', authLimiter);
 
 // ✅ Check JWT secret presence
 if (!process.env.JWT_SECRET) {
-  console.error("❌ JWT_SECULT missing in .env file!");
+  console.error("❌ JWT_SECRET missing in .env file!");
   process.exit(1);
 } else {
   console.log("✅ JWT_SECRET loaded successfully");
@@ -353,12 +368,3 @@ async function sendTestOrderNotification(chatId: number, orderDetails: any) {
     process.exit(1);
   }
 })();
-
-
-
-
-
-
-
-
-

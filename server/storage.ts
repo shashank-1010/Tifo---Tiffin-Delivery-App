@@ -6,6 +6,7 @@ import { Coupon, ICoupon } from "./models/Coupon";
 import { Review, IReview } from "./models/Review";
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
+import { generateDeliverySchedule } from "./services/deliveryScheduleService";
 import type {
   User as SharedUser,
   Seller as SharedSeller,
@@ -71,6 +72,23 @@ export interface IStorage {
   getBookingsByEmail(email: string): Promise<BookingWithDetails[]>;
   getBookingsBySellerId(sellerId: string): Promise<BookingWithDetails[]>;
   getAllBookingsWithDetails(): Promise<BookingWithDetails[]>;
+  // ✅ NEW: subscription delivery schedule
+  getBookingWithDetailsById(id: string): Promise<BookingWithDetails | null>;
+  rateDeliveryDay(
+    bookingId: string,
+    entryId: string,
+    rating: number,
+    comment?: string
+  ): Promise<SharedBooking | null>;
+  // ✅ NEW: seller manually marks one delivery day as Pending / Delivered / Missed
+  updateDeliveryDayStatus(
+    bookingId: string,
+    entryId: string,
+    status: "Pending" | "Delivered" | "Missed"
+  ): Promise<SharedBooking | null>;
+  // ✅ NEW: weekly/monthly subscription bookings only, scoped to one customer or one seller
+  getSubscriptionBookingsByEmail(email: string): Promise<BookingWithDetails[]>;
+  getSubscriptionBookingsBySellerId(sellerId: string): Promise<BookingWithDetails[]>;
   
   // ✅ UPDATED: Review methods
   createReview(review: Omit<SharedReview, "_id" | "createdAt" | "updatedAt">): Promise<SharedReview>;
@@ -372,12 +390,21 @@ async updateSeller(sellerId: string, updateData: Partial<SharedSeller>): Promise
       couponCode: bookingData.couponCode
     });
 
+    // ✅ NEW: for weekly/monthly subscriptions, auto-build the day-by-day
+    // delivery schedule (which dates get delivered) right at booking time.
+    const deliverySchedule = generateDeliverySchedule(
+      bookingData.bookingType,
+      bookingData.date as any,
+      bookingData.selectedDays || []
+    );
+
     const booking = new Booking({
       ...bookingData,
       status: "Pending",
       addOns: bookingData.addOns || [],
       weeklyCustomizations: bookingData.weeklyCustomizations || [],
       selectedDays: bookingData.selectedDays || [],
+      deliverySchedule,
     });
     
     await booking.save();
@@ -423,6 +450,120 @@ async updateSeller(sellerId: string, updateData: Partial<SharedSeller>): Promise
       const tiffinObj = toObject<SharedTiffin>((booking as any).tiffinId);
       const sellerObj = toObject<SharedSeller>((booking as any).sellerId);
       
+      return {
+        ...bookingObj,
+        tiffin: tiffinObj,
+        seller: sellerObj
+      };
+    });
+  }
+
+  // ✅ NEW: single booking with tiffin + seller populated (used by the subscription page)
+  async getBookingWithDetailsById(id: string): Promise<BookingWithDetails | null> {
+    if (!mongoose.Types.ObjectId.isValid(id)) return null;
+
+    const booking = await Booking.findById(id)
+      .populate('tiffinId')
+      .populate('sellerId');
+
+    if (!booking) return null;
+
+    const bookingObj = toObject<SharedBooking>(booking);
+    const tiffinObj = toObject<SharedTiffin>((booking as any).tiffinId);
+    const sellerObj = toObject<SharedSeller>((booking as any).sellerId);
+
+    return {
+      ...bookingObj,
+      tiffin: tiffinObj,
+      seller: sellerObj
+    };
+  }
+
+  // ✅ NEW: customer rates one specific day of their weekly/monthly subscription
+  async rateDeliveryDay(
+    bookingId: string,
+    entryId: string,
+    rating: number,
+    comment?: string
+  ): Promise<SharedBooking | null> {
+    if (!mongoose.Types.ObjectId.isValid(bookingId)) return null;
+
+    const booking = await Booking.findById(bookingId);
+    if (!booking) return null;
+
+    const entry = (booking.deliverySchedule as any).id(entryId);
+    if (!entry) return null;
+
+    entry.rating = rating;
+    entry.review = comment || "";
+    entry.ratedAt = new Date();
+
+    await booking.save();
+    return toObject<SharedBooking>(booking);
+  }
+
+  // ✅ NEW: seller manually marks one delivery day (used by the seller's
+  // "Manage Subscriptions" dashboard section). This persists a non-"Pending"
+  // status, which withLiveStatus() will then always trust over its date guess.
+  async updateDeliveryDayStatus(
+    bookingId: string,
+    entryId: string,
+    status: "Pending" | "Delivered" | "Missed"
+  ): Promise<SharedBooking | null> {
+    if (!mongoose.Types.ObjectId.isValid(bookingId)) return null;
+
+    const booking = await Booking.findById(bookingId);
+    if (!booking) return null;
+
+    const entry = (booking.deliverySchedule as any).id(entryId);
+    if (!entry) return null;
+
+    entry.status = status;
+
+    await booking.save();
+    return toObject<SharedBooking>(booking);
+  }
+
+  // ✅ NEW: a customer's weekly/monthly subscriptions only (for the "My Subscriptions" page)
+  async getSubscriptionBookingsByEmail(email: string): Promise<BookingWithDetails[]> {
+    const bookings = await Booking.find({
+      customerEmail: email,
+      bookingType: { $in: ["weekly", "monthly"] },
+    })
+      .populate('tiffinId')
+      .populate('sellerId')
+      .sort({ createdAt: -1 });
+
+    return bookings.map(booking => {
+      const bookingObj = toObject<SharedBooking>(booking);
+      const tiffinObj = toObject<SharedTiffin>((booking as any).tiffinId);
+      const sellerObj = toObject<SharedSeller>((booking as any).sellerId);
+
+      return {
+        ...bookingObj,
+        tiffin: tiffinObj,
+        seller: sellerObj
+      };
+    });
+  }
+
+  // ✅ NEW: a seller's weekly/monthly subscriptions only (for the "Manage Subscriptions" dashboard section)
+  async getSubscriptionBookingsBySellerId(sellerId: string): Promise<BookingWithDetails[]> {
+    if (!mongoose.Types.ObjectId.isValid(sellerId)) return [];
+
+    const bookings = await Booking.find({
+      sellerId,
+      bookingType: { $in: ["weekly", "monthly"] },
+    })
+      .populate('tiffinId')
+      .populate('sellerId')
+      .sort({ createdAt: -1 });
+
+    return bookings.map(booking => {
+      const bookingObj = toObject<SharedBooking>(booking);
+      const tiffinObj = toObject<SharedTiffin>((booking as any).tiffinId);
+      const sellerObj = toObject<SharedSeller>((booking as any).sellerId);
+
       return {
         ...bookingObj,
         tiffin: tiffinObj,

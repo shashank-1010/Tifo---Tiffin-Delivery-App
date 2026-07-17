@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
@@ -11,83 +11,15 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 import { apiRequest } from "@/lib/queryClient";
 import { loginSchema, type LoginCredentials, type AuthResponse } from "@shared/schema";
-import { UtensilsCrossed, Eye, EyeOff, ChefHat, Shield, User, ArrowLeft, Home, Star, Truck, Clock, ShieldCheck, RefreshCw } from "lucide-react";
-
-// Turnstile types
-declare global {
-  interface Window {
-    turnstile: {
-      render: (container: string | HTMLElement, options: any) => string;
-      remove: (widgetId: string) => void;
-      reset: (widgetId: string) => void;
-    };
-  }
-}
+import { UtensilsCrossed, Eye, EyeOff, ArrowLeft, Star, Truck, Clock, ShieldCheck } from "lucide-react";
 
 export default function Login() {
   const { toast } = useToast();
   const { login } = useAuth();
   const [, setLocation] = useLocation();
   const [showPassword, setShowPassword] = useState(false);
-  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
-  const [turnstileWidgetId, setTurnstileWidgetId] = useState<string | null>(null);
-  const [isTurnstileLoaded, setIsTurnstileLoaded] = useState(false);
 
-  // Load Turnstile script
-  useEffect(() => {
-    const script = document.createElement("script");
-    script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js";
-    script.async = true;
-    script.defer = true;
-    
-    script.onload = () => {
-      setIsTurnstileLoaded(true);
-      initializeTurnstile();
-    };
-
-    document.head.appendChild(script);
-
-    return () => {
-      // Cleanup
-      if (turnstileWidgetId && window.turnstile) {
-        window.turnstile.remove(turnstileWidgetId);
-      }
-    };
-  }, []);
-
-  // Initialize Turnstile
-  const initializeTurnstile = () => {
-    if (window.turnstile) {
-      const widgetId = window.turnstile.render("#turnstile-widget", {
-        sitekey: import.meta.env.VITE_TURNSTILE_SITE_KEY || "1x00000000000000000000AA",
-        callback: (token: string) => {
-          setTurnstileToken(token);
-        },
-        "error-callback": () => {
-          setTurnstileToken(null);
-          toast({
-            title: "Verification failed",
-            description: "Please complete the security check",
-            variant: "destructive",
-          });
-        },
-        "expired-callback": () => {
-          setTurnstileToken(null);
-        },
-      });
-      setTurnstileWidgetId(widgetId);
-    }
-  };
-
-  // Reset Turnstile
-  const resetTurnstile = () => {
-    if (turnstileWidgetId && window.turnstile) {
-      window.turnstile.reset(turnstileWidgetId);
-      setTurnstileToken(null);
-    }
-  };
-
-  const form = useForm<LoginCredentials & { turnstileToken?: string }>({
+  const form = useForm<LoginCredentials>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
       email: "",
@@ -96,15 +28,10 @@ export default function Login() {
   });
 
   const loginMutation = useMutation({
-    mutationFn: async (data: LoginCredentials & { turnstileToken?: string }) => {
-      if (!turnstileToken) {
-        throw new Error("Please complete the security verification");
-      }
-      
+    mutationFn: async (data: LoginCredentials) => {
       const response = await apiRequest<AuthResponse>("POST", "/api/auth/login", {
         email: data.email,
         password: data.password,
-        turnstileToken: turnstileToken
       });
       return response;
     },
@@ -136,22 +63,11 @@ export default function Login() {
         description: error.message || "Invalid credentials. Please try again.",
         variant: "destructive",
       });
-      // Reset Turnstile on error
-      resetTurnstile();
     },
   });
 
   const onSubmit = (data: LoginCredentials) => {
-    if (!turnstileToken) {
-      toast({
-        title: "Security verification required",
-        description: "Please complete the security check",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    loginMutation.mutate({ ...data, turnstileToken });
+    loginMutation.mutate(data);
   };
 
   const demoLogin = (role: "admin" | "seller" | "user") => {
@@ -164,18 +80,10 @@ export default function Login() {
     form.setValue("email", demoCredentials[role].email);
     form.setValue("password", demoCredentials[role].password);
     
-    // For demo, we'll bypass Turnstile by setting a mock token
-    const mockToken = "demo_turnstile_token_" + Date.now();
-    setTurnstileToken(mockToken);
-    
-    // Submit after a small delay to ensure token is set
+    // Submit after a small delay to ensure values are set
     setTimeout(() => {
       onSubmit(demoCredentials[role]);
     }, 100);
-  };
-
-  const goBack = () => {
-    window.history.back();
   };
 
   const goHome = () => {
@@ -199,7 +107,7 @@ export default function Login() {
         </div>
       </div>
 
- {/* Background decorative elements */}
+      {/* Background decorative elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-red-100 rounded-full mix-blend-multiply filter blur-xl opacity-30"></div>
         <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-red-50 rounded-full mix-blend-multiply filter blur-xl opacity-30"></div>
@@ -275,7 +183,7 @@ export default function Login() {
 
           {/* Right side - Login card */}
           <div className="flex justify-center">
-            <Card className="w-full max-w-md border-2 border-red-100 shadow-2xl bg-white rounded-3xl overflow-hidden">
+            <Card className="w-full max-w-md border-2 border-red-100 shadow-2xl bg-white rounded-3xl overflow-hidden relative">
               <div className="absolute top-0 left-0 right-0 h-2 bg-red-600"></div>
               
               <CardHeader className="text-center pb-6 pt-8">
@@ -348,32 +256,6 @@ export default function Login() {
                       )}
                     />
 
-                    {/* Cloudflare Turnstile - YAHI ADD KIYA HAI */}
-                    <div className="space-y-3">
-                      <FormLabel className="text-sm font-medium text-gray-700">
-                        Security Verification
-                      </FormLabel>
-                      <div className="flex justify-center">
-                        <div 
-                          id="turnstile-widget" 
-                          className="turnstile-widget"
-                          style={{ 
-                            minHeight: '65px',
-                            display: 'flex',
-                            justifyContent: 'center'
-                          }}
-                        />
-                      </div>
-                      {!isTurnstileLoaded && (
-                        <div className="text-center py-4">
-                          <div className="flex items-center justify-center gap-2 text-gray-500">
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                            Loading security check...
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
                     <div className="text-right">
                       <Link href="/forgot-password">
                         <a className="text-sm text-red-600 hover:text-red-700 font-medium hover:underline transition-colors">
@@ -385,7 +267,7 @@ export default function Login() {
                     <Button
                       type="submit"
                       className="w-full h-12 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl shadow-lg transition-all duration-200 transform hover:scale-[1.02] disabled:opacity-50"
-                      disabled={loginMutation.isPending || !turnstileToken}
+                      disabled={loginMutation.isPending}
                     >
                       {loginMutation.isPending ? (
                         <div className="flex items-center gap-2">

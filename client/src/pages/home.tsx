@@ -12,6 +12,7 @@ import {
   Gift,
   MapPin, 
   Clock, 
+  BadgePercent,
   Tag,
   IndianRupee, 
   Star,
@@ -20,6 +21,8 @@ import {
   Clock4,
   Heart,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Filter,
   Navigation,
   Phone,
@@ -49,10 +52,21 @@ import {
   Utensils,
   Pizza,
   Coffee,
-  IceCream
+  IceCream,
+  ShoppingCart,
+  Mic,
+  Bookmark,
+  CalendarCheck,
+  UtensilsCrossed,
+  PlusCircle,
+  PackageCheck,
+  ArrowRight
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import type { TiffinWithSeller } from "@shared/schema";
+import { useAuth } from "@/lib/auth-context";
+import { useCart } from "@/lib/cart-context";
+import { useToast } from "@/hooks/use-toast";
 
 interface TopRatedSeller {
   _id: string;
@@ -68,34 +82,11 @@ interface TopRatedSeller {
   };
 }
 
-// Import optimized images
-import heroImage from "@assets/generated_images/Traditional_Indian_tiffin_thali_d174217b.png";
-import vegImage from "@assets/generated_images/Vegetarian_tiffin_lunch_box_a5780b62.png";
-import nonVegImage from "@assets/generated_images/Non-vegetarian_tiffin_meal_aa63199b.png";
-
+// Fallback images
 const categoryImages: Record<string, string> = {
-  Veg: vegImage,
-  "Non-Veg": nonVegImage,
+  Veg: "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=800&q=80",
+  "Non-Veg": "https://images.unsplash.com/photo-1631515243349-e0cb75fb8d3a?auto=format&fit=crop&w=800&q=80",
 };
-
-// Featured cities
-const featuredCities = ["Lucknow", "Unnao", "Nawabganj", "Kanpur"];
-
-// Food categories with icons
-const foodCategories = [
-  { name: "Biryani", icon: "🍛", emoji: "🍛" },
-  { name: "Burger", icon: "🍔", emoji: "🍔" },
-  { name: "Tiffin", icon: "🍱", emoji: "🍱" },
-  { name: "Corn", icon: "🌽", emoji: "🌽" },
-  { name: "Rice", icon: "🍚", emoji: "🍚" },
-  { name: "Noodles", icon: "🍜", emoji: "🍜" },
-  { name: "Chicken", icon: "🍗", emoji: "🍗" },
-  { name: "Paneer", icon: "🧀", emoji: "🧀" },
-  { name: "Mushroom", icon: "🍄", emoji: "🍄" },
-  { name: "Aloo", icon: "🥔", emoji: "🥔" },
-  { name: "Pizza", icon: "🍕", emoji: "🍕" },
-  { name: "Desserts", icon: "🍨", emoji: "🍨" }
-];
 
 // Scroll animation component with 3D effect - Mobile Optimized
 const ScrollAnimation3D = ({ children, delay = 0, className = "" }: { children: React.ReactNode; delay?: number; className?: string }) => {
@@ -148,7 +139,6 @@ const ImageUpload = ({ onImageUpload }: { onImageUpload: (url: string) => void }
   const handleUrlSubmit = () => {
     if (imageUrl.trim()) {
       setIsUploading(true);
-      // Simulate upload process
       setTimeout(() => {
         onImageUpload(imageUrl);
         setIsUploading(false);
@@ -157,34 +147,18 @@ const ImageUpload = ({ onImageUpload }: { onImageUpload: (url: string) => void }
   };
 
   return (
-    <div className="bg-white rounded-2xl shadow-lg p-6 max-w-md w-full">
+    <div className="bg-white rounded-2xl shadow-lg p-4 sm:p-6 max-w-md w-full mx-auto">
       <div className="flex items-center gap-3 mb-4">
         <Image className="w-6 h-6 text-red-500" />
         <h3 className="text-lg font-semibold text-gray-800">Upload Image</h3>
       </div>
-      
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Image URL
-          </label>
-          <Input
-            type="url"
-            placeholder="https://example.com/image.jpg"
-            value={imageUrl}
-            onChange={(e) => setImageUrl(e.target.value)}
-            className="w-full"
-          />
-          <p className="text-xs text-gray-500 mt-1">
-            Paste the URL of your image (JPG, PNG, WebP supported)
-          </p>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Image URL</label>
+          <Input type="url" placeholder="https://example.com/image.jpg" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} className="w-full" />
+          <p className="text-xs text-gray-500 mt-1">Paste the URL of your image (JPG, PNG, WebP supported)</p>
         </div>
-
-        <Button
-          onClick={handleUrlSubmit}
-          disabled={!imageUrl.trim() || isUploading}
-          className="w-full bg-red-500 hover:bg-red-600 text-white"
-        >
+        <Button onClick={handleUrlSubmit} disabled={!imageUrl.trim() || isUploading} className="w-full bg-red-500 hover:bg-red-600 text-white">
           {isUploading ? (
             <>
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
@@ -202,7 +176,7 @@ const ImageUpload = ({ onImageUpload }: { onImageUpload: (url: string) => void }
   );
 };
 
-// Location Picker Modal - map se location set karne ke liye (Leaflet + OpenStreetMap, no API key needed)
+// Location Picker Modal
 const LocationPickerModal = ({
   isOpen,
   onClose,
@@ -239,7 +213,6 @@ const LocationPickerModal = ({
   );
   const [isLoadingAddress, setIsLoadingAddress] = useState(false);
 
-  // Reset a fresh state har baar modal khulne par
   useEffect(() => {
     if (isOpen) {
       setForWhom("self");
@@ -251,15 +224,12 @@ const LocationPickerModal = ({
     }
   }, [isOpen]);
 
-  // Leaflet ko CDN se load karo (npm install ki zaroorat nahi)
   useEffect(() => {
     if (!isOpen) return;
-
     if ((window as any).L) {
       setMapLoaded(true);
       return;
     }
-
     if (!document.getElementById("leaflet-css")) {
       const link = document.createElement("link");
       link.id = "leaflet-css";
@@ -267,13 +237,11 @@ const LocationPickerModal = ({
       link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
       document.head.appendChild(link);
     }
-
     const existingScript = document.getElementById("leaflet-js") as HTMLScriptElement | null;
     if (existingScript) {
       existingScript.addEventListener("load", () => setMapLoaded(true));
       return;
     }
-
     const script = document.createElement("script");
     script.id = "leaflet-js";
     script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
@@ -302,7 +270,6 @@ const LocationPickerModal = ({
     }
   };
 
-  // Map initialize karo jab modal khule aur Leaflet load ho jaye
   useEffect(() => {
     if (!isOpen || !mapLoaded || !mapRef.current) return;
     const L = (window as any).L;
@@ -310,36 +277,27 @@ const LocationPickerModal = ({
       setTimeout(() => leafletMapRef.current.invalidateSize(), 100);
       return;
     }
-
-    const start = initialCoords || { lat: 26.8467, lng: 80.9462 }; // Lucknow default
-
+    const start = initialCoords || { lat: 26.8467, lng: 80.9462 };
     const map = L.map(mapRef.current).setView([start.lat, start.lng], 15);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "&copy; OpenStreetMap contributors",
       maxZoom: 19,
     }).addTo(map);
-
     const marker = L.marker([start.lat, start.lng], { draggable: true }).addTo(map);
-
     marker.on("dragend", () => {
       const pos = marker.getLatLng();
       reverseGeocode(pos.lat, pos.lng);
     });
-
     map.on("click", (e: any) => {
       marker.setLatLng(e.latlng);
       reverseGeocode(e.latlng.lat, e.latlng.lng);
     });
-
     leafletMapRef.current = map;
     markerRef.current = marker;
-
     reverseGeocode(start.lat, start.lng);
     setTimeout(() => map.invalidateSize(), 150);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, mapLoaded]);
 
-  // Modal band hone par map cleanup karo taaki dobara khulne par fresh ban sake
   useEffect(() => {
     if (!isOpen && leafletMapRef.current) {
       leafletMapRef.current.remove();
@@ -390,7 +348,6 @@ const LocationPickerModal = ({
     setSearchQuery(result.display_name);
   };
 
-  // "Real" current location - browser geolocation se
   const handleUseCurrentLocation = () => {
     if (!navigator.geolocation) {
       alert("Geolocation is not supported by your browser. Map par pin drag karke location set karein.");
@@ -416,7 +373,6 @@ const LocationPickerModal = ({
 
   const handleConfirm = () => {
     if (!selectedCoords) return;
-
     if (forWhom === "other") {
       if (!recipientName.trim()) {
         setPhoneError("Naam daalna zaroori hai");
@@ -428,7 +384,6 @@ const LocationPickerModal = ({
       }
     }
     setPhoneError("");
-
     onConfirm(
       { address: selectedAddress, city: selectedCity, lat: selectedCoords.lat, lng: selectedCoords.lng },
       forWhom,
@@ -441,8 +396,7 @@ const LocationPickerModal = ({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-[60] p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[92vh] flex flex-col shadow-2xl">
-        {/* Header */}
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg md:max-w-xl max-h-[92vh] sm:max-h-[85vh] flex flex-col shadow-2xl">
         <div className="flex items-center justify-between p-4 border-b border-gray-100 flex-shrink-0">
           <div className="flex items-center gap-2">
             <MapPin className="w-5 h-5 text-red-500" />
@@ -452,70 +406,35 @@ const LocationPickerModal = ({
             <X className="w-5 h-5 text-gray-500" />
           </button>
         </div>
-
         <div className="overflow-y-auto flex-1">
-          {/* Order for self / someone else toggle */}
           <div className="p-4 border-b border-gray-100">
             <div className="flex bg-gray-100 rounded-xl p-1">
-              <button
-                onClick={() => setForWhom("self")}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold transition-all ${
-                  forWhom === "self" ? "bg-white text-red-500 shadow" : "text-gray-500"
-                }`}
-              >
+              <button onClick={() => setForWhom("self")} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold transition-all ${forWhom === "self" ? "bg-white text-red-500 shadow" : "text-gray-500"}`}>
                 <User className="w-4 h-4" />
                 Order for Myself
               </button>
-              <button
-                onClick={() => setForWhom("other")}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold transition-all ${
-                  forWhom === "other" ? "bg-white text-red-500 shadow" : "text-gray-500"
-                }`}
-              >
+              <button onClick={() => setForWhom("other")} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold transition-all ${forWhom === "other" ? "bg-white text-red-500 shadow" : "text-gray-500"}`}>
                 <Gift className="w-4 h-4" />
                 Order for Someone Else
               </button>
             </div>
-
             {forWhom === "other" && (
-              <div className="mt-3 space-y-2">
-                <Input
-                  placeholder="Recipient's full name"
-                  value={recipientName}
-                  onChange={(e) => setRecipientName(e.target.value)}
-                />
-                <Input
-                  type="tel"
-                  placeholder="Recipient's phone number"
-                  value={recipientPhone}
-                  maxLength={10}
-                  onChange={(e) => setRecipientPhone(e.target.value.replace(/\D/g, ""))}
-                />
-                {phoneError && <p className="text-xs text-red-500">{phoneError}</p>}
+              <div className="mt-3 space-y-2 sm:flex sm:gap-2 sm:space-y-0">
+                <Input placeholder="Recipient's full name" value={recipientName} onChange={(e) => setRecipientName(e.target.value)} className="sm:flex-1" />
+                <Input type="tel" placeholder="Recipient's phone number" value={recipientPhone} maxLength={10} onChange={(e) => setRecipientPhone(e.target.value.replace(/\D/g, ""))} className="sm:flex-1" />
+                {phoneError && <p className="text-xs text-red-500 sm:basis-full">{phoneError}</p>}
               </div>
             )}
           </div>
-
-          {/* Search */}
           <div className="p-4 border-b border-gray-100 relative">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <Input
-                placeholder="Search for area, street, landmark..."
-                value={searchQuery}
-                onChange={(e) => handleSearchChange(e.target.value)}
-                className="pl-9"
-              />
+              <Input placeholder="Search for area, street, landmark..." value={searchQuery} onChange={(e) => handleSearchChange(e.target.value)} className="pl-9" />
             </div>
-
             {searchResults.length > 0 && (
               <div className="absolute left-4 right-4 top-full mt-1 bg-white rounded-lg shadow-lg border border-gray-200 z-10 max-h-56 overflow-y-auto">
                 {searchResults.map((result, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleSelectSearchResult(result)}
-                    className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-100 last:border-0 text-sm text-gray-700 flex items-start gap-2"
-                  >
+                  <button key={idx} onClick={() => handleSelectSearchResult(result)} className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-100 last:border-0 text-sm text-gray-700 flex items-start gap-2">
                     <MapPin className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
                     <span className="line-clamp-2">{result.display_name}</span>
                   </button>
@@ -523,18 +442,12 @@ const LocationPickerModal = ({
               </div>
             )}
             {isSearching && <p className="text-xs text-gray-400 mt-1">Searching...</p>}
-
-            <button
-              onClick={handleUseCurrentLocation}
-              className="flex items-center gap-2 mt-3 text-sm font-semibold text-red-500 hover:text-red-600"
-            >
+            <button onClick={handleUseCurrentLocation} className="flex items-center gap-2 mt-3 text-sm font-semibold text-red-500 hover:text-red-600">
               <Navigation className="w-4 h-4" />
               Use my real (current) location
             </button>
           </div>
-
-          {/* Map */}
-          <div className="relative h-[280px]">
+          <div className="relative h-[280px] sm:h-[340px] md:h-[380px]">
             <div ref={mapRef} className="w-full h-full" />
             {!mapLoaded && (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
@@ -546,8 +459,6 @@ const LocationPickerModal = ({
               Drag the pin or tap on the map to set exact location
             </div>
           </div>
-
-          {/* Selected Address */}
           <div className="p-4">
             <div className="bg-gray-50 rounded-lg p-3 mb-3 min-h-[54px]">
               {isLoadingAddress ? (
@@ -557,26 +468,160 @@ const LocationPickerModal = ({
                 </div>
               ) : (
                 <>
-                  <p className="text-sm font-medium text-gray-800 line-clamp-2">
-                    {selectedAddress || "Select a location on the map"}
-                  </p>
+                  <p className="text-sm font-medium text-gray-800 line-clamp-2">{selectedAddress || "Select a location on the map"}</p>
                   {selectedCity && <p className="text-xs text-gray-500 mt-1">{selectedCity}</p>}
                 </>
               )}
             </div>
           </div>
         </div>
-
-        {/* Footer - always visible */}
         <div className="p-4 border-t border-gray-100 flex-shrink-0">
-          <Button
-            onClick={handleConfirm}
-            disabled={!selectedCoords || isLoadingAddress}
-            className="w-full bg-red-500 hover:bg-red-600 text-white py-5 rounded-xl font-semibold"
-          >
+          <Button onClick={handleConfirm} disabled={!selectedCoords || isLoadingAddress} className="w-full bg-red-500 hover:bg-red-600 text-white py-5 rounded-xl font-semibold">
             Confirm {forWhom === "other" ? "Recipient's" : "My"} Location
           </Button>
         </div>
+      </div>
+    </div>
+  );
+};
+
+// Tiffin Subscription Overlay
+const TiffinOverlay = ({
+  isOpen,
+  onClose,
+  tiffins,
+  isLoading,
+  onTiffinClick,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  tiffins: any[];
+  isLoading: boolean;
+  onTiffinClick: (tiffin: any) => void;
+}) => {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+  if (!isOpen) return null;
+
+  const categories = ["Veg", "Non-Veg"];
+  const filteredTiffins = tiffins.filter((tiffin: any) => {
+    const matchesSearch = !searchQuery || tiffin.title.toLowerCase().includes(searchQuery.toLowerCase()) || tiffin.seller?.shopName?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory = !selectedCategory || tiffin.category === selectedCategory;
+    return matchesSearch && matchesCategory;
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-lg bg-white rounded-t-[28px] shadow-2xl animate-slide-up max-h-[90vh] flex flex-col">
+        <div className="sticky top-0 bg-white rounded-t-[28px] z-20">
+          <div className="flex justify-center pt-3 pb-1">
+            <div className="w-12 h-1.5 bg-gray-300 rounded-full" />
+          </div>
+          <div className="px-5 pb-3">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Tiffin Subscription</h2>
+                <p className="text-sm text-gray-500">Choose your plan & order now</p>
+              </div>
+              <button onClick={onClose} className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center hover:bg-gray-200 transition-colors">
+                <X className="w-5 h-5 text-gray-600" />
+              </button>
+            </div>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Input placeholder="Search tiffins..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-9 py-5 bg-gray-50 border-gray-100 rounded-xl text-sm" />
+            </div>
+            <div className="flex gap-2 mt-3 overflow-x-auto hide-scrollbar">
+              {categories.map((cat) => (
+                <button key={cat} onClick={() => setSelectedCategory(selectedCategory === cat ? null : cat)} className={`flex-shrink-0 px-4 py-1.5 rounded-full text-xs font-semibold border transition-all ${selectedCategory === cat ? 'bg-red-500 text-white border-red-500' : 'bg-white text-gray-600 border-gray-200'}`}>
+                  {cat === "Veg" ? "🟢 Veg" : "🔴 Non-Veg"}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 pb-8">
+          {isLoading ? (
+            <div className="space-y-3 mt-3">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="bg-gray-50 rounded-2xl p-4 animate-pulse">
+                  <div className="flex gap-4">
+                    <div className="w-24 h-24 bg-gray-200 rounded-xl flex-shrink-0" />
+                    <div className="flex-1 space-y-3">
+                      <div className="h-4 bg-gray-200 rounded w-3/4" />
+                      <div className="h-3 bg-gray-200 rounded w-1/2" />
+                      <div className="flex gap-2">
+                        <div className="h-8 bg-gray-200 rounded-lg flex-1" />
+                        <div className="h-8 bg-gray-200 rounded-lg flex-1" />
+                        <div className="h-8 bg-gray-200 rounded-lg flex-1" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : filteredTiffins.length === 0 ? (
+            <div className="text-center py-12">
+              <Search className="w-16 h-16 text-gray-200 mx-auto mb-4" />
+              <p className="text-gray-500">No tiffins found</p>
+            </div>
+          ) : (
+            <div className="space-y-3 mt-3">
+              {filteredTiffins.map((tiffin: any) => {
+                const trialPrice = tiffin.trialPrice || Math.round(tiffin.price * 0.85);
+                const weeklyPrice = tiffin.weeklyPrice || trialPrice * 7;
+                const monthlyPrice = tiffin.monthlyPrice || trialPrice * 28;
+                return (
+                  <div key={tiffin._id} onClick={() => onTiffinClick(tiffin)} className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all cursor-pointer active:scale-[0.98]">
+                    <div className="flex gap-4">
+                      <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0 bg-gray-100">
+                        <img src={categoryImages[tiffin.category] || "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=200&h=200&fit=crop"} alt={tiffin.title} className="w-full h-full object-cover" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <h3 className="font-bold text-gray-900 text-sm line-clamp-1">{tiffin.title}</h3>
+                            <p className="text-xs text-gray-500 mt-0.5">{tiffin.seller?.shopName || "Tiffin Kitchen"}</p>
+                          </div>
+                          <div className="flex items-center gap-1 bg-green-600 text-white px-1.5 py-0.5 rounded text-[10px] font-semibold flex-shrink-0">
+                            <Star className="w-2.5 h-2.5 fill-white" />
+                            4.5
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-gray-400 mt-1 line-clamp-1">{tiffin.description}</p>
+                        <div className="grid grid-cols-3 gap-1.5 mt-2.5">
+                          <div className="bg-blue-50 rounded-lg p-2 text-center border border-blue-100">
+                            <p className="text-[9px] font-semibold text-blue-600 mb-0.5">🧪 Trial</p>
+                            <p className="text-xs font-bold text-blue-700">₹{trialPrice}</p>
+                            <p className="text-[8px] text-blue-500">1 day</p>
+                          </div>
+                          <div className="bg-green-50 rounded-lg p-2 text-center border border-green-100 relative">
+                            <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 bg-orange-500 text-white text-[7px] font-bold px-1.5 py-0.5 rounded-full">BEST</span>
+                            <p className="text-[9px] font-semibold text-green-600 mb-0.5 mt-0.5">📅 Weekly</p>
+                            <p className="text-xs font-bold text-green-700">₹{weeklyPrice}</p>
+                            <p className="text-[8px] text-green-500">7 days</p>
+                          </div>
+                          <div className="bg-purple-50 rounded-lg p-2 text-center border border-purple-100">
+                            <p className="text-[9px] font-semibold text-purple-600 mb-0.5">📦 Monthly</p>
+                            <p className="text-xs font-bold text-purple-700">₹{monthlyPrice}</p>
+                            <p className="text-[8px] text-purple-500">28 days</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-end gap-1 mt-2 text-xs font-semibold text-red-500">
+                          <span>View Details</span>
+                          <ArrowRight className="w-3 h-3" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        <div className="h-5 bg-white" />
       </div>
     </div>
   );
@@ -587,12 +632,41 @@ export default function Home() {
   const { data: topRatedSellers = [] } = useQuery<TopRatedSeller[]>({
     queryKey: ["/api/top-rated-sellers"],
   });
+
+  const { isAuthenticated } = useAuth();
+  const { addItem: addToCart, totalItems } = useCart();
+  const { toast } = useToast();
+
+  const handleQuickAddToCart = (e: React.MouseEvent, tiffin: TiffinWithSeller) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isAuthenticated) {
+      toast({ title: "Login Required", description: "Please login to add items to your cart", variant: "destructive" });
+      setLocation("/login");
+      return;
+    }
+    const deliveryCharge = 19;
+    addToCart({
+      tiffinId: tiffin._id,
+      sellerId: tiffin.sellerId,
+      tiffinTitle: tiffin.title,
+      bookingType: "single",
+      date: new Date().toISOString().split("T")[0],
+      slot: "Instant Delivery - ASAP",
+      quantity: 1,
+      basePrice: tiffin.price,
+      addOnsPrice: 0,
+      deliveryCharge,
+      discountAmount: 0,
+      totalPrice: tiffin.price + deliveryCharge,
+    });
+    toast({ title: "Added to Cart", description: `${tiffin.title} has been added to your cart.` });
+  };
   
   const [hasSearched, setHasSearched] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
-  const [selectedFoodType, setSelectedFoodType] = useState<string | null>(null);
   const [selectedFoodCategory, setSelectedFoodCategory] = useState<string | null>(null);
   const [showCityDropdown, setShowCityDropdown] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
@@ -601,7 +675,7 @@ export default function Home() {
   const [userType, setUserType] = useState<"customer" | "seller" | "admin" | null>(null);
   const [scrollProgress, setScrollProgress] = useState(0);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const [showImageUpload, setShowImageUpload] = useState(false);
   const [heroImageUrl, setHeroImageUrl] = useState("https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=800&q=80");
   const [bannerImageUrl, setBannerImageUrl] = useState("https://image2url.com/images/1763986721956-7bc4c565-ef21-4771-9eaa-0dd94be72037.jpeg");
@@ -615,104 +689,56 @@ export default function Home() {
   const [charIndex, setCharIndex] = useState(0);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Home component ke state variables mein add karo:
-  // Delivery location + "order for someone else" details, ab lat/lng ke saath
-  const [userLocation, setUserLocation] = useState({
-    city: "Lucknow", // Default city
-    address: "Sector J, Jankipuram",
-    lat: 26.8896 as number | null,
-    lng: 80.9548 as number | null,
-  });
-
-  // Kiske liye order ho raha hai - khud ke liye ya kisi aur ke liye
+  const [userLocation, setUserLocation] = useState({ city: "Lucknow", address: "Sector J, Jankipuram", lat: 26.8896 as number | null, lng: 80.9548 as number | null });
   const [deliverFor, setDeliverFor] = useState<"self" | "other">("self");
-  const [recipientDetails, setRecipientDetails] = useState({
-    name: "",
-    phone: "",
-    address: "",
-    city: "",
-    lat: null as number | null,
-    lng: null as number | null,
-  });
-
-  // Location picker modal ke liye state
+  const [recipientDetails, setRecipientDetails] = useState({ name: "", phone: "", address: "", city: "", lat: null as number | null, lng: null as number | null });
   const [showLocationPicker, setShowLocationPicker] = useState(false);
+  const [showTiffinOverlay, setShowTiffinOverlay] = useState(false);
+  const recommendedScrollRef = useRef<HTMLDivElement>(null);
 
-  // User data fetch karne ke liye useEffect add karo
+  // --- VEG MODE STATE (Default ON i.e. true) ---
+  const [vegMode, setVegMode] = useState(true);
+
+  const scrollRecommended = (direction: "left" | "right") => {
+    const el = recommendedScrollRef.current;
+    if (!el) return;
+    const amount = el.clientWidth * 0.7;
+    el.scrollBy({ left: direction === "left" ? -amount : amount, behavior: "smooth" });
+  };
+
   useEffect(() => {
     const fetchUserData = async () => {
       try {
         const token = localStorage.getItem('token');
         if (token) {
-          const response = await fetch('/api/user/profile', {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          });
+          const response = await fetch('/api/user/profile', { headers: { 'Authorization': `Bearer ${token}` } });
           if (response.ok) {
             const userData = await response.json();
             if (userData.city && userData.address) {
-              setUserLocation((prev) => ({
-                ...prev,
-                city: userData.city,
-                address: userData.address,
-                lat: userData.lat ?? prev.lat,
-                lng: userData.lng ?? prev.lng,
-              }));
+              setUserLocation((prev) => ({ ...prev, city: userData.city, address: userData.address, lat: userData.lat ?? prev.lat, lng: userData.lng ?? prev.lng }));
             }
           }
         }
-      } catch (error) {
-        console.error('Error fetching user data:', error);
-      }
+      } catch (error) { console.error('Error fetching user data:', error); }
     };
-
     fetchUserData();
   }, []);
 
-  // Location picker se aaya hua result save karne ka handler
-  const handleLocationConfirm = (
-    loc: { address: string; city: string; lat: number; lng: number },
-    forWhom: "self" | "other",
-    recipient?: { name: string; phone: string }
-  ) => {
+  const handleLocationConfirm = ( loc: { address: string; city: string; lat: number; lng: number }, forWhom: "self" | "other", recipient?: { name: string; phone: string } ) => {
     if (forWhom === "self") {
       setUserLocation({ city: loc.city || "Lucknow", address: loc.address, lat: loc.lat, lng: loc.lng });
       setDeliverFor("self");
     } else {
-      setRecipientDetails({
-        name: recipient?.name || "",
-        phone: recipient?.phone || "",
-        address: loc.address,
-        city: loc.city || "",
-        lat: loc.lat,
-        lng: loc.lng,
-      });
+      setRecipientDetails({ name: recipient?.name || "", phone: recipient?.phone || "", address: loc.address, city: loc.city || "", lat: loc.lat, lng: loc.lng });
       setDeliverFor("other");
     }
   };
 
-  const searchTerms = [
-    "kadhai paneer..",
-    "butter chicken..", 
-    "biryani..",
-    "tiffin services..",
-    "home cooked meals..",
-    "daily lunch..",
-    "healthy food..",
-    "veg thali..",
-    "chole bhature..",
-    "north indian food..",
-    "south indian food..",
-    "paneer butter masala..",
-    "dal makhani..",
-    "rajma chawal.."
-  ];
+  const searchTerms = ["kadhai paneer..", "butter chicken..", "biryani..", "tiffin services..", "home cooked meals..", "daily lunch..", "healthy food..", "veg thali..", "chole bhature..", "north indian food..", "south indian food..", "paneer butter masala..", "dal makhani..", "rajma chawal.."];
 
   useEffect(() => {
     const currentTerm = searchTerms[placeholderIndex];
     const baseText = "Search for ";
-    
     const timeout = setTimeout(() => {
       if (!isDeleting) {
         if (charIndex < currentTerm.length) {
@@ -731,19 +757,20 @@ export default function Home() {
         }
       }
     }, isDeleting ? 50 : 100);
-
     return () => clearTimeout(timeout);
   }, [charIndex, isDeleting, placeholderIndex]);
 
-  const { data: tiffins = [], isLoading } = useQuery<TiffinWithSeller[]>({
-    queryKey: ["/api/tiffins"],
+  const { data: allItems = [], isLoading } = useQuery<TiffinWithSeller[]>({ queryKey: ["/api/tiffins"] });
+  const meals = allItems.filter((i: any) => i.serviceType !== "tiffin" || !i.serviceType);
+  const tiffinsData = allItems.filter((i: any) => i.serviceType === "tiffin").map((i: any) => {
+    const trialPrice = i.trialPrice || Math.round(i.price * 0.85);
+    return { ...i, trialPrice, weeklyPrice: i.weeklyPrice || trialPrice * 7, monthlyPrice: i.monthlyPrice || trialPrice * 28 };
   });
 
   useEffect(() => {
     const handleScroll = () => {
       const scrolled = window.scrollY > 20;
       setIsScrolled(scrolled);
-
       const winHeight = window.innerHeight;
       const docHeight = document.documentElement.scrollHeight;
       const scrollTop = window.pageYOffset;
@@ -751,26 +778,17 @@ export default function Home() {
       const progress = Math.floor((scrollTop / trackLength) * 100);
       setScrollProgress(progress);
     };
-
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
   useEffect(() => {
-    if (userType === "seller") {
-      window.location.href = "/seller/dashboard";
-    } else if (userType === "admin") {
-      window.location.href = "/admin";
-    } else if (userType === "customer") {
-      window.location.href = "/my-bookings";
-    }
+    if (userType === "seller") { window.location.href = "/seller/dashboard"; } 
+    else if (userType === "admin") { window.location.href = "/admin"; } 
+    else if (userType === "customer") { window.location.href = "/my-bookings"; }
   }, [userType]);
 
-  const cities = Array.from(new Set(tiffins.map((t) => t.seller.city)));
   const categories = ["Veg", "Non-Veg"];
-  const foodTypes = ["Tiffin"];
-
-  // Price ranges define karo
   const priceRanges = [
     { label: "Under ₹100", value: "0-100", min: 0, max: 100 },
     { label: "₹100 - ₹200", value: "100-200", min: 100, max: 200 },
@@ -780,435 +798,294 @@ export default function Home() {
     { label: "Above ₹500", value: "500+", min: 500, max: Infinity }
   ];
 
-  // Filtered tiffins mein price range filter add karo
-  const filteredTiffins = tiffins.filter((tiffin) => {
-    const matchesSearch =
-      !searchQuery ||
-      tiffin.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      tiffin.seller.shopName.toLowerCase().includes(searchQuery.toLowerCase());
-    
+  // Filtered meals
+  const filteredTiffins = meals.filter((tiffin) => {
+    const matchesSearch = !searchQuery || tiffin.title.toLowerCase().includes(searchQuery.toLowerCase()) || tiffin.seller.shopName.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCategory = !selectedCategory || tiffin.category === selectedCategory;
-    const matchesCity = !selectedCity || tiffin.seller.city === selectedCity;
-    
-    const matchesFoodType = !selectedFoodType || 
-      (selectedFoodType === "Tiffin" && tiffin.serviceType === "tiffin") ||
-      (selectedFoodType === "Meal" && tiffin.serviceType === "meal");
-
-    // Food category filter
-    const matchesFoodCategory = !selectedFoodCategory || 
-      tiffin.title.toLowerCase().includes(selectedFoodCategory.toLowerCase()) ||
-      tiffin.description.toLowerCase().includes(selectedFoodCategory.toLowerCase());
-
-    // Price range filter
+    const matchesFoodCategory = !selectedFoodCategory || tiffin.title.toLowerCase().includes(selectedFoodCategory.toLowerCase()) || tiffin.description.toLowerCase().includes(selectedFoodCategory.toLowerCase());
     const matchesPrice = !selectedPriceRange || (() => {
       const range = priceRanges.find(r => r.value === selectedPriceRange);
       if (!range) return true;
-      
-      if (range.value === "500+") {
-        return tiffin.price >= range.min;
-      }
+      if (range.value === "500+") { return tiffin.price >= range.min; }
       return tiffin.price >= range.min && tiffin.price <= range.max;
     })();
+
+    // ✅ VEG MODE FILTER LOGIC (Default true => shows Veg. Click => shows Non-Veg)
+    const matchesVegMode = vegMode ? tiffin.category === "Veg" : tiffin.category === "Non-Veg";
     
-    return matchesSearch && matchesCategory && matchesCity && matchesFoodType && matchesFoodCategory && matchesPrice;
+    return matchesSearch && matchesCategory && matchesFoodCategory && matchesPrice && matchesVegMode;
   });
 
   const popularTiffins = filteredTiffins.slice(0, 6);
 
-  const handleLogin = (type: "customer" | "seller" | "admin") => {
-    setUserType(type);
-    setShowLoginPopup(false);
+  const handleLogin = (type: "customer" | "seller" | "admin") => { setUserType(type); setShowLoginPopup(false); };
+  const handleImageUpload = (url: string, type: 'hero' | 'banner') => { if (type === 'hero') { setHeroImageUrl(url); } else { setBannerImageUrl(url); } setShowImageUpload(false); };
+  const handleFoodCategoryClick = (categoryName: string) => { setSelectedFoodCategory(selectedFoodCategory === categoryName ? null : categoryName); setSearchQuery(categoryName); };
+
+  const handleRecommendedClick = (itemTitle: string) => {
+    const normalize = (s: string) => s.toLowerCase().trim();
+    const target = normalize(itemTitle);
+    const exactMatch = meals.find((m) => normalize(m.title) === target);
+    const partialMatch = exactMatch || meals.find((m) => normalize(m.title).includes(target) || target.includes(normalize(m.title)));
+    if (partialMatch) { setLocation(`/tiffin/${partialMatch._id}`); } else { setSearchQuery(itemTitle); }
   };
 
-  const handleImageUpload = (url: string, type: 'hero' | 'banner') => {
-    if (type === 'hero') {
-      setHeroImageUrl(url);
-    } else {
-      setBannerImageUrl(url);
-    }
-    setShowImageUpload(false);
-  };
-
-  const handleFoodCategoryClick = (categoryName: string) => {
-    setSelectedFoodCategory(selectedFoodCategory === categoryName ? null : categoryName);
-    setSearchQuery(categoryName);
-  };
-
-  const scrollToTop = () => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  const handleTiffinClick = (tiffin: any) => { setShowTiffinOverlay(false); setLocation(`/tiffin/${tiffin._id}`); };
+  const scrollToTop = () => { window.scrollTo({ top: 0, behavior: 'smooth' }); };
 
   return (
-    <div className="min-h-screen bg-white">
-      {/* Scroll Progress Bar */}
+    <div className="min-h-screen bg-white pb-20 lg:pb-0">
       <div className="fixed top-0 left-0 w-full h-1 bg-gray-200 z-50">
-        <div 
-          className="h-full bg-gradient-to-r from-red-500 to-orange-500 transition-all duration-300"
-          style={{ width: `${scrollProgress}%` }}
-        />
+        <div className="h-full bg-gradient-to-r from-red-500 to-orange-500 transition-all duration-300" style={{ width: `${scrollProgress}%` }} />
       </div>
-
-      {/* Cookie Consent */}
       <CookieConsent />
 
-      {/* Navbar - White Background */}
-<div className={`absolute top-0 left-0 right-0 z-40 transition-all duration-300 bg-white shadow-lg py-2`}>
-  <div className="max-w-7xl mx-auto px-4">
-    <div className="flex items-center justify-between">
-      {/* Left side - Small Logo aur Location with dropdown */}
-      <div className="flex items-center gap-3">
-        {/* Small Logo - Corner mein */}
-        <div className="w-8 h-8 bg-gradient-to-r from-red-500 to-red-600 rounded-lg flex items-center justify-center shadow-lg">
-          <span className="text-white font-bold text-sm">T</span>
+      <div className="relative pt-3 pb-6 sm:pt-4 sm:pb-8 md:pt-5 overflow-hidden">
+        <div className="absolute inset-0 z-0">
+          <img src="https://cdn.corenexis.com/f/0tZSdrUDNuU.png" alt="" className="w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-white/35" />
         </div>
-        
-        {/* Location Display - tap/click to set via map or real location */}
-        <div className="flex flex-col relative group">
-          <button
-            onClick={() => setShowLocationPicker(true)}
-            className="flex items-center gap-1 cursor-pointer hover:bg-gray-50 rounded-lg px-2 py-1 transition-colors"
-          >
-            <MapPin className="w-4 h-4 text-red-500" />
-            <span className="text-sm font-semibold text-gray-800">
-              {deliverFor === "other" ? recipientDetails.city || "Set location" : userLocation.city}
-            </span>
-            {deliverFor === "other" && (
-              <Badge className="ml-1 bg-orange-100 text-orange-600 hover:bg-orange-100 text-[10px] px-1.5 py-0">
-                For {recipientDetails.name || "someone else"}
-              </Badge>
-            )}
-            <ChevronDown className="w-3 h-3 text-gray-500 ml-1" />
-          </button>
-
-          {/* Hover preview of full address + edit link */}
-          <div className="absolute top-full left-0 mt-1 w-72 bg-white rounded-lg shadow-lg border border-gray-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
-            <div className="p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <MapPin className="w-4 h-4 text-red-500" />
-                <span className="font-semibold text-gray-800">
-                  {deliverFor === "other" ? "Recipient's Location" : "Your Location"}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+          <div className="flex items-center justify-between mb-3 sm:mb-4">
+            <div className="flex flex-col">
+              <button className="flex items-center gap-1 cursor-pointer">
+                <span className="text-[15px] sm:text-base md:text-lg font-bold text-gray-900">
+                  Deliver to: {userLocation.address && userLocation.address.length > 20 ? userLocation.address.substring(0, 20) + "..." : userLocation.address || "Set Location"}
                 </span>
-              </div>
-              {deliverFor === "other" ? (
-                <>
-                  <p className="text-sm text-gray-600">{recipientDetails.address || "Not set yet"}</p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {recipientDetails.name} {recipientDetails.phone && `• ${recipientDetails.phone}`}
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className="text-sm text-gray-600">{userLocation.address}</p>
-                  <p className="text-xs text-gray-500 mt-1">{userLocation.city}</p>
-                </>
-              )}
-              <button
-                onClick={() => setShowLocationPicker(true)}
-                className="text-xs font-semibold text-red-500 hover:text-red-600 mt-2"
-              >
-                Change location
+                <ChevronDown className="w-4 h-4 text-gray-700 flex-shrink-0" />
               </button>
+              <span className="text-sm text-gray-500 leading-tight">{userLocation.city || "Lucknow"}, Uttar Pradesh</span>
+            </div>
+            <div className="flex items-center gap-2 sm:gap-3">
+              <Link href="/cart">
+                <button className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors">
+                  <ShoppingCart className="w-5 h-5 text-gray-700" />
+                  {totalItems > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center shadow-md">
+                      {totalItems > 99 ? "99+" : totalItems}
+                    </span>
+                  )}
+                </button>
+              </Link>
+              <button onClick={() => setShowLoginPopup(true)} className="w-9 h-9 sm:w-10 sm:h-10 rounded-full overflow-hidden border-2 border-orange-300 flex items-center justify-center bg-gray-100 flex-shrink-0">
+                <img src="https://tse2.mm.bing.net/th/id/OIP.7voziSoXjbJfxit4O9xJZgHaHa?r=0&pid=Api&P=0&h=180" alt="Profile" className="w-full h-full object-cover" />
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 max-w-2xl">
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 z-10" />
+              <Input placeholder="Find Your Tiffin..." className="pl-11 pr-12.5 py-6 text-base border-0 rounded-full bg-white shadow-md focus-visible:ring-2 focus-visible:ring-red-400 w-full" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+            </div>
+            <div className="flex-shrink-0 w-[52px] h-[52px] rounded-full bg-red-600 text-white shadow-lg border-2 border-white flex flex-col items-center justify-center leading-none text-center">
+              <span className="text-[12px] font-extrabold">50%</span>
+              <span className="text-[9px] font-bold">OFF</span>
+              <span className="text-[6.5px] font-medium opacity-90">| Items</span>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="hidden lg:flex items-center gap-6">
-        {/* Search Button */}
-        <Button 
-          variant="ghost"
-          onClick={() => setShowSearchInput(!showSearchInput)}
-          className="flex items-center gap-2 text-gray-700 hover:text-red-500"
-        >
-          <Search className="w-5 h-5" />
-          Search
-        </Button>
-
-        <Link href="/my-bookings">
-          <span className={`font-medium cursor-pointer transition-colors text-gray-700 hover:text-red-500`}>
-            My Orders
-          </span>
-        </Link>
-        
-        {userType === "customer" && (
-          <Link href="/my-bookings">
-            <span className={`font-medium cursor-pointer transition-colors text-gray-700 hover:text-red-500`}>
-              <BookOpen className="w-4 h-4 inline mr-1" />
-              My Bookings
-            </span>
-          </Link>
-        )}
-
-        <div className="flex items-center gap-4">
-          <Link href="/help">
-            <span className={`font-medium cursor-pointer transition-colors text-gray-700 hover:text-red-500`}>
-              Help
-            </span>
-          </Link>
-          
-          <Button 
-            onClick={() => setShowLoginPopup(true)}
-            className={`rounded-full font-medium transition-all bg-red-500 hover:bg-red-600 text-white border border-red-500`}
-          >
-            <LogIn className="w-4 h-4 mr-2" />
-            Login
-          </Button>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-3 lg:hidden">
-
-        
-        {/* Mobile Search Button */}
-        <Button 
-          variant="ghost"
-          size="sm"
-          onClick={() => setShowSearchInput(!showSearchInput)}
-          className="text-gray-700"
-        >
-          <Search className="w-5 h-5" />
-        </Button>
-        
-        <Button 
-          onClick={() => setShowLoginPopup(true)}
-          className={`rounded-full font-medium transition-all bg-red-500 hover:bg-red-600 text-white border border-red-500`}
-          size="sm"
-        >
-          <LogIn className="w-4 h-4" />
-        </Button>
-        
-       
-      </div>
-    </div>
-
-    {/* Search Input - Shows when search button is clicked */}
-    {(showSearchInput || window.innerWidth < 1024) && (
-      <div className="mt-3">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 z-10" />
-          <Input
-            placeholder={currentPlaceholder}
-            className="pl-10 pr-4 py-2 text-base border border-gray-300 rounded-full focus:ring-2 focus:ring-red-500 focus:border-red-500 w-full bg-white"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-      </div>
-    )}   
-  </div>
-</div>
-
-      {/* Add padding to account for fixed navbar */}
-      <div className="pt-20"></div>
-
-     {/* Image Upload Modal */}
-{showImageUpload && (
-  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-    <div className="relative">
-      <ImageUpload onImageUpload={(url) => handleImageUpload(url, 'banner')} />
-      <Button
-        variant="ghost"
-        size="icon"
-        className="absolute -top-2 -right-2 bg-white rounded-full shadow-lg"
-        onClick={() => setShowImageUpload(false)}
-      >
-        <X className="w-4 h-4" />
-      </Button>
-    </div>
-  </div>
-)}
-
-{/* Hero Section */}
-<section className="relative bg-white">
-  <div className="max-w-7xl mx-auto">
-    {/* Banner Image - Only image visible */}
-    <div className="relative group"><br></br>
-      <img
-        src={bannerImageUrl}
-        alt="Food Banner"
-        className="w-full h-auto object-cover"
-        onError={(e) => {
-          e.currentTarget.src = "https://image2url.com/images/1763986721956-7bc4c565-ef21-4771-9eaa-0dd94be72037.jpeg";
-        }}
-      />
-    </div>
-
-{/* Food Categories - Small Circle Design */}
-<div className="mt-3">
-  <h2 className="text-xl font-bold text-gray-800 text-center mb-4">What's on your mind?</h2>
-  <div className="relative">
-    {/* Scrollable Container - Circle Buttons */}
-    <div className="flex overflow-x-auto hide-scrollbar gap-4 px-1 pb-3">
-      {foodCategories.map((category, index) => (
-        <button
-          key={category.name}
-          onClick={() => handleFoodCategoryClick(category.name)}
-          className={`flex-shrink-0 flex flex-col items-center p-3 transition-all duration-300 hover:scale-110 ${
-            selectedFoodCategory === category.name 
-              ? 'bg-red-500 shadow-lg shadow-red-200' 
-              : 'bg-white border border-gray-200 hover:border-red-300 hover:bg-red-50'
-          } rounded-full min-w-[70px] min-h-[70px]`}
-        >
-          <span className={`text-xl mb-1 ${
-            selectedFoodCategory === category.name ? 'text-white' : 'text-gray-700'
-          }`}>
-            {category.emoji}
-          </span>
-          <span className={`text-[10px] font-medium text-center leading-tight ${
-            selectedFoodCategory === category.name ? 'text-white font-bold' : 'text-gray-700'
-          }`}>
-            {category.name}
-          </span>
-        </button>
-      ))}
-    </div>
-    
-    {/* Simple arrow indicator - Moved Up */}
-    <div className="absolute right-2 top-[40%] transform -translate-y-1/2 pointer-events-none">
-      <div className="w-3 h-3 border-r-2 border-b-2 border-gray-400 rotate-[-45deg]"></div>
-    </div>
-    
-    {/* Scroll hint - subtle gradient on right side */}
-    <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white to-transparent pointer-events-none"></div>
-  </div>
-</div>
-  </div>
-</section>
-
-     {/* Tiffins and Meals Section - Directly after hero */}
-<section className="py-6 bg-white -mt-4">  {/* py-12 se py-6 aur -mt-4 add */}
-  <div className="max-w-7xl mx-auto px-4">
-    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-6 gap-3">  {/* mb-8 se mb-6, gap-4 se gap-3 */}
-      <div>
-        <h2 className="text-2xl font-bold text-gray-800 mb-1">  {/* text-3xl se text-2xl, mb-2 se mb-1 */}
-          {selectedFoodCategory 
-            ? `Best ${selectedFoodCategory} Items`
-            : selectedFoodType === "Tiffin" 
-            ? "Best Tiffin Boxes" 
-            : selectedFoodType === "Meal" 
-            ? "Best Full Meals"
-            : "Best Food Near You"
-          }
-        </h2>
-        <p className="text-gray-600 text-sm">  {/* text-sm add */}
-          Fresh homemade food from local kitchens
-        </p>
-      </div>
-      
-      <div className="flex flex-wrap items-center gap-1">  {/* gap-2 se gap-1 */}
-        <div className="flex gap-1">  {/* gap-2 se gap-1 */}
-          {foodTypes.map((type) => (
-            <Button
-              key={type}
-              onClick={() => setSelectedFoodType(selectedFoodType === type ? null : type)}
-              variant={selectedFoodType === type ? "default" : "outline"}
-              size="sm"
-              className={`rounded-full text-xs ${
-                selectedFoodType === type
-                  ? 'bg-red-500 hover:bg-red-600 text-white'
-                  : 'border-gray-300 text-gray-700'
-              }`}
-            >
-              {type}
+      {showImageUpload && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="relative">
+            <ImageUpload onImageUpload={(url) => handleImageUpload(url, 'banner')} />
+            <Button variant="ghost" size="icon" className="absolute -top-2 -right-2 bg-white rounded-full shadow-lg" onClick={() => setShowImageUpload(false)}>
+              <X className="w-4 h-4" />
             </Button>
-          ))}
+          </div>
         </div>
+      )}
 
-              <div className="flex gap-2">
-                {categories.map((category) => (
-                  <Button
-                    key={category}
-                    onClick={() => setSelectedCategory(selectedCategory === category ? null : category)}
-                    variant={selectedCategory === category ? "default" : "outline"}
-                    size="sm"
-                    className={`rounded-full ${
-                      selectedCategory === category
-                        ? 'bg-red-500 hover:bg-red-600 text-white'
-                        : 'border-gray-300 text-gray-700'
-                    }`}
-                  >
-                    {category}
-                  </Button>
-                ))}
-              </div>
+      <section className="relative z-10 bg-[#F8EFDB] rounded-t-2xl shadow-[0_-4px_16px_rgba(0,0,0,0.06)] -mt-4 pt-3 pb-2 sm:pt-4 sm:pb-3 border-t border-gray-100">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex overflow-x-auto hide-scrollbar gap-6 sm:gap-3 pb-1 sm:justify-start">
+            {[
+              { title: "Our Kitchen", subtitle: "Daily Specials", img: "https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=200&h=200&fit=crop" },
+              { title: "Veg Thali Tiffin", subtitle: "Complete Veg Meals", img: "https://images.unsplash.com/photo-1601050690597-df0568f70950?w=200&h=200&fit=crop" },
+              { title: "Add-ons", subtitle: "Lighter Meals", img: "https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=200&h=200&fit=crop" },
+              { title: "Healthy Meals", subtitle: "High Protein, Low-Calorie", img: "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=200&h=200&fit=crop" },
+            ].map((cat) => (
+              <button key={cat.title} onClick={() => handleFoodCategoryClick(cat.title)} className="flex-shrink-0 w-[72px] sm:w-[88px] md:w-[100px] text-left">
+                <div className="w-[72px] h-[72px] sm:w-[88px] sm:h-[88px] md:w-[100px] md:h-[100px] rounded-2xl overflow-hidden border border-gray-200 shadow-sm bg-white">
+                  <img src={cat.img} alt={cat.title} className="w-full h-full object-cover" />
+                </div>
+                <p className="mt-1 text-[10px] sm:text-xs md:text-sm font-bold text-gray-900 leading-tight line-clamp-2">{cat.title}</p>
+                <p className="text-[8px] sm:text-[10px] md:text-xs text-gray-500 leading-tight line-clamp-1">{cat.subtitle}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
 
-              {/* More Filters Button with Dropdown */}
-              <div className="relative">
+      <section className="bg-white pt-3 pb-1 sm:pt-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+            <div>
+              <h2 className="text-[15px] sm:text-base md:text-lg font-extrabold text-gray-900 mb-2 leading-tight">Tiffin Meal Options</h2>
+              <Card className="rounded-2xl overflow-hidden border border-gray-100 shadow-md cursor-pointer" onClick={() => setShowTiffinOverlay(true)}>
+                <div className="relative">
+                  <img src="https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&h=300&fit=crop" alt="Veg Special Tiffin" className="w-full h-24 sm:h-28 md:h-32 object-cover" />
+                  <Bookmark className="absolute top-1.5 right-1.5 w-5 h-5 text-white drop-shadow" />
+                  <span className="absolute bottom-1.5 left-1.5 bg-green-800 text-white text-[10px] font-semibold px-1.5 py-0.5 rounded-md">Maa Ka Dabba</span>
+                </div>
+                <div className="p-2 sm:p-3">
+                  <p className="font-bold text-gray-900 text-[13px] sm:text-sm leading-tight">Veg Special Tiffin</p>
+                  <div className="flex items-center gap-1 text-[11px] sm:text-xs text-gray-600 mt-0.5">
+                    <Star className="w-3 h-3 text-green-600 fill-green-600" />
+                    <span className="font-semibold">4.8</span>
+                    <span>| 25-30 mins</span>
+                  </div>
+                  <p className="text-[10px] sm:text-xs text-green-700 mt-0.5 leading-tight">✓ 15% OFF (Subscriptions)</p>
+                </div>
+              </Card>
+            </div>
+            <div>
+              <h2 className="text-[15px] sm:text-base md:text-lg font-extrabold text-gray-900 mb-2 leading-tight">Weekly Subscriptions</h2>
+              <Card className="rounded-2xl overflow-hidden border border-gray-100 shadow-md cursor-pointer" onClick={() => setShowTiffinOverlay(true)}>
+                <img src="https://images.unsplash.com/photo-1626132647523-66f5bf380027?w=400&h=300&fit=crop" alt="Mahalaxmi Sweets" className="w-full h-24 sm:h-28 md:h-32 object-cover" />
+                <div className="p-2 sm:p-3">
+                  <p className="font-bold text-gray-900 text-[13px] sm:text-sm leading-tight">Mahalaxmi Sweets</p>
+                  <p className="text-[10px] sm:text-xs text-gray-500 mt-0.5">Add-on Sweet</p>
+                </div>
+              </Card>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-white pt-2 pb-3 sm:pt-3 sm:pb-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <h2 className="text-[15px] sm:text-base md:text-lg font-extrabold text-gray-900 tracking-wide mb-2 leading-tight">RECOMMENDED FOR YOU</h2>
+          <div className="flex overflow-x-auto hide-scrollbar gap-2.5 sm:gap-4 pb-1">
+            {[
+              { title: "Standard Veg Tiffin", badge: "Rs.175 OFF", img: "https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=300&h=300&fit=crop" },
+              { title: "Classic Dal Makhani", badge: "Rs.100 OFF Add-ons", img: "https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=300&h=300&fit=crop" },
+              { title: "Paneer Butter Masala Tiffin", badge: "Rs.100 OFF Add-ons", img: "https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=300&h=300&fit=crop" },
+              { title: "White sauce pasta", badge: "Rs.100 OFF Add-ons", img: "https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=300&h=300&fit=crop" },
+              { title: "Paneer Butter Masala Tiffin", badge: "Rs.100 OFF Add-ons", img: "https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=300&h=300&fit=crop" },
+              { title: "Paneer Butter Masala Tiffin", badge: "Rs.100 OFF Add-ons", img: "https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=300&h=300&fit=crop" },
+            ].map((item) => (
+              <button key={item.title} onClick={() => handleRecommendedClick(item.title)} className="flex-shrink-0 w-[110px] sm:w-[140px] md:w-[160px] text-left">
+                <div className="relative w-full h-[90px] sm:h-[110px] md:h-[130px] rounded-2xl overflow-hidden border border-gray-200 shadow-sm">
+                  <img src={item.img} alt={item.title} className="w-full h-full object-cover" />
+                  <span className="absolute bottom-0 left-0 right-0 bg-black/70 text-white text-[8px] sm:text-[10px] font-semibold text-center py-0.5">{item.badge}</span>
+                </div>
+                <p className="mt-1.5 text-[11px] sm:text-xs md:text-sm font-bold text-gray-900 leading-tight line-clamp-2">{item.title}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="py-6 sm:py-8 bg-white -mt-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-6 gap-3">
+            <div>
+              <h2 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-1">
+                {selectedFoodCategory ? `Best ${selectedFoodCategory} Items` : "Best Food Near You"}
+              </h2>
+              <p className="text-gray-600 text-sm">Fresh homemade food from local kitchens</p>
+            </div>
+            
+            {/* ✅ TEXT SWITCH KE ANDAR + FIXED FILTER DROPDOWN (RIGHT ALIGNED) */}
+            <div className="flex flex-wrap items-center justify-end gap-3 w-full lg:w-auto">
+              
+              {/* Premium Toggle: Text hamesha switch ke andar rahega */}
+              <button
+                onClick={() => setVegMode(!vegMode)}
+                className={`relative flex items-center h-[34px] rounded-full cursor-pointer transition-all duration-300 shadow-sm border border-gray-200 w-[80px] ${
+                  vegMode 
+                    ? 'bg-green-600 border-green-700' 
+                    : 'bg-gray-300 border-gray-300'
+                }`}
+              >
+                {/* "VEG" Text - ANDAR switch ke blank area mein move karega */}
+                <span 
+                  className={`absolute text-[10px] font-extrabold tracking-wider text-white transition-all duration-300 uppercase ${
+                    vegMode 
+                      ? 'left-3.5 opacity-100 scale-100' 
+                      : 'right-3.5 opacity-100 scale-100'
+                  }`}
+                >
+                  VEG
+                </span>
+
+                {/* White Circle (Thumb) */}
+                <div 
+                  className={`w-[24px] h-[24px] bg-white rounded-full shadow-md transform transition-all duration-300 ease-in-out ${
+                    vegMode ? 'translate-x-[46px]' : 'translate-x-[4px]'
+                  }`}
+                />
+              </button>
+
+              {/* ✅ Filters Button (Right Aligned) */}
+              <div className="relative ml-auto lg:ml-0">
                 <Button 
                   variant="outline" 
-                  className="border-gray-300 text-gray-700 rounded-full whitespace-nowrap" 
+                  className="border-gray-200 text-gray-700 rounded-full whitespace-nowrap h-9 text-sm font-medium px-4 hover:bg-gray-50 hover:border-gray-300 transition-all" 
                   size="sm"
                   onClick={() => setShowMoreFilters(!showMoreFilters)}
                 >
-                  <Filter className="w-4 h-4 mr-2" />
-                  More Filters
+                  <Filter className="w-4 h-4 mr-2 text-gray-500" />
+                  Filters
                   {selectedPriceRange && (
-                    <span className="ml-1 w-2 h-2 bg-red-500 rounded-full"></span>
+                    <span className="ml-1 w-1.5 h-1.5 bg-red-500 rounded-full"></span>
                   )}
                 </Button>
 
-                {/* Filters Dropdown */}
+                {/* ✅ SMART FILTERS DROPDOWN (Ab kabhi screen ke bahar nahi jayega!) */}
                 {showMoreFilters && (
-                  <div className="absolute top-full right-0 mt-2 w-64 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 p-4">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="font-semibold text-gray-800">Filters</h3>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setShowMoreFilters(false)}
-                        className="w-6 h-6 p-0"
+                  <div className="absolute top-full mt-2 w-[280px] max-w-[90vw] bg-white rounded-2xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.15)] border border-gray-100 z-50 p-5 overflow-hidden right-0 lg:right-0">
+                    <div className="flex items-center justify-between mb-5">
+                      <h3 className="font-bold text-gray-800 text-base">Price Filter</h3>
+                      <button 
+                        onClick={() => setShowMoreFilters(false)} 
+                        className="w-7 h-7 bg-gray-100 rounded-full flex items-center justify-center hover:bg-gray-200 transition-colors"
                       >
-                        <X className="w-4 h-4" />
-                      </Button>
+                        <X className="w-4 h-4 text-gray-500" />
+                      </button>
                     </div>
-
-                    {/* Price Range Filter */}
-                    <div className="mb-4">
-                      <h4 className="font-medium text-gray-700 mb-3">Price Range</h4>
-                      <div className="space-y-2">
-                        {priceRanges.map((range) => (
-                          <div
-                            key={range.value}
-                            className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all ${
-                              selectedPriceRange === range.value
-                                ? 'bg-red-50 border border-red-200'
-                                : 'bg-gray-50 hover:bg-gray-100'
-                            }`}
-                            onClick={() => {
-                              setSelectedPriceRange(selectedPriceRange === range.value ? null : range.value);
-                            }}
-                          >
-                            <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                              selectedPriceRange === range.value
-                                ? 'border-red-500 bg-red-500'
-                                : 'border-gray-400'
-                            }`}>
-                              {selectedPriceRange === range.value && (
-                                <div className="w-2 h-2 bg-white rounded-full"></div>
-                              )}
+                    
+                    <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
+                      {priceRanges.map((range) => (
+                        <div 
+                          key={range.value} 
+                          className={`flex items-center justify-between p-3.5 rounded-xl cursor-pointer transition-all duration-200 ${
+                            selectedPriceRange === range.value 
+                              ? 'bg-green-50 border border-green-200' 
+                              : 'bg-gray-50 hover:bg-gray-100'
+                          }`} 
+                          onClick={() => { 
+                            setSelectedPriceRange(selectedPriceRange === range.value ? null : range.value);
+                          }}
+                        >
+                          <span className={`text-sm font-semibold ${
+                            selectedPriceRange === range.value ? 'text-green-700' : 'text-gray-700'
+                          }`}>
+                            {range.label}
+                          </span>
+                          {selectedPriceRange === range.value && (
+                            <div className="w-5 h-5 bg-green-600 rounded-full flex items-center justify-center shadow-sm">
+                              <div className="w-2 h-2 bg-white rounded-full"></div>
                             </div>
-                            <span className={`text-sm ${
-                              selectedPriceRange === range.value ? 'text-red-600 font-semibold' : 'text-gray-700'
-                            }`}>
-                              {range.label}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
-
-                    {/* Clear All Button */}
+                    
                     {(selectedPriceRange) && (
-                      <Button
-                        variant="outline"
-                        className="w-full border-red-200 text-red-600 hover:bg-red-50"
-                        size="sm"
-                        onClick={() => {
-                          setSelectedPriceRange(null);
-                        }}
-                      >
-                        Clear All Filters
-                      </Button>
+                      <div className="mt-4 pt-4 border-t border-gray-100">
+                        <Button 
+                          variant="ghost" 
+                          className="w-full text-green-600 hover:text-green-700 hover:bg-green-50 font-semibold rounded-xl" 
+                          size="sm"
+                          onClick={() => { setSelectedPriceRange(null); }}
+                        >
+                          Clear Filter
+                        </Button>
+                      </div>
                     )}
                   </div>
                 )}
@@ -1217,17 +1094,9 @@ export default function Home() {
           </div>
 
           <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab} className="mb-6">
-            <TabsList className="bg-gray-100 p-1 rounded-xl inline-flex overflow-x-auto w-full">
-              {[
-                { value: "all", label: "All Items" },
-                { value: "popular", label: "Popular 🔥" },
-                { value: "top-rated", label: "Top Rated ⭐" },
-              ].map((tab) => (
-                <TabsTrigger 
-                  key={tab.value}
-                  value={tab.value}
-                  className="rounded-lg data-[state=active]:bg-white data-[state=active]:text-red-500 data-[state=active]:shadow-sm font-semibold px-4 py-2 transition-all hover:scale-105 whitespace-nowrap"
-                >
+            <TabsList className="bg-gray-100 p-1 rounded-xl inline-flex overflow-x-auto w-full sm:w-auto">
+              {[{ value: "all", label: "All Items" }, { value: "popular", label: "Popular 🔥" }, { value: "top-rated", label: "Top Rated ⭐" }].map((tab) => (
+                <TabsTrigger key={tab.value} value={tab.value} className="rounded-lg data-[state=active]:bg-white data-[state=active]:text-red-500 data-[state=active]:shadow-sm font-semibold px-4 py-2 transition-all hover:scale-105 whitespace-nowrap">
                   {tab.label}
                 </TabsTrigger>
               ))}
@@ -1236,7 +1105,7 @@ export default function Home() {
             {/* All Items Tab */}
             <TabsContent value="all" className="mt-6">
               {isLoading ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
                   {[...Array(6)].map((_, i) => (
                     <Card key={i} className="overflow-hidden border-0 shadow-lg rounded-2xl">
                       <Skeleton className="h-48 w-full rounded-2xl" />
@@ -1259,122 +1128,59 @@ export default function Home() {
                   </div>
                   <h3 className="text-xl font-semibold text-gray-800 mb-2">No items found</h3>
                   <p className="text-gray-600 mb-4">Try adjusting your search criteria</p>
-                  <Button 
-                    onClick={() => {
-                      setSearchQuery("");
-                      setSelectedCategory(null);
-                      setSelectedCity(null);
-                      setSelectedFoodType(null);
-                      setSelectedFoodCategory(null);
-                    }}
-                    className="bg-red-500 hover:bg-red-600 text-white rounded-full hover:scale-105 transition-transform"
-                  >
+                  <Button onClick={() => { setSearchQuery(""); setSelectedCategory(null); setSelectedCity(null); setSelectedFoodCategory(null); setVegMode(true); }} className="bg-red-500 hover:bg-red-600 text-white rounded-full hover:scale-105 transition-transform">
                     Clear Filters
                   </Button>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
                   {filteredTiffins.map((tiffin, index) => (
-                      <Card className="overflow-hidden border-0 shadow-lg hover:shadow-2xl transition-all duration-500 cursor-pointer group rounded-2xl transform hover:-translate-y-2 hover:scale-105">
-                        <div className="relative h-48 overflow-hidden">
-                          <img
-                            src={categoryImages[tiffin.category]}
-                            alt={tiffin.title}
-                            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                          />
-                          
-                          <div className="absolute top-3 left-3 bg-blue-500 text-white px-3 py-1 rounded-full text-sm font-semibold shadow-lg">
-                            {tiffin.serviceType === "tiffin" ? "🍱 Tiffin" : "🍛 Meal"}
+                    <Link key={tiffin._id} href={`/tiffin/${tiffin._id}`}>
+                      <Card className="overflow-hidden border-0 shadow-lg hover:shadow-2xl transition-all duration-500 cursor-pointer group rounded-2xl transform hover:-translate-y-1">
+                        <div className="relative h-48 sm:h-52 overflow-hidden">
+                          <img src={categoryImages[tiffin.category]} alt={tiffin.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                          <div className="absolute top-3 left-3 flex flex-col items-start gap-2">
+                            <div className="bg-blue-500 text-white px-3 py-1 rounded-full text-xs font-semibold shadow-lg">🍛 Meal</div>
                           </div>
-
-                          {index % 3 === 0 && (
-                            <div className="absolute top-3 right-3 bg-yellow-500 text-white px-3 py-1 rounded-full text-sm font-semibold shadow-lg">
-                              ⭐ Premium
-                            </div>
-                          )}
-
                           <div className="absolute bottom-3 left-3">
-                            <Badge className={`${
-                              tiffin.category === "Veg" 
-                                ? "bg-green-500 text-white" 
-                                : tiffin.category === "Non-Veg"
-                                ? "bg-red-500 text-white"
-                                : "bg-purple-500 text-white"
-                            } border-0 font-semibold shadow-lg`}>
+                            <Badge className={`${tiffin.category === "Veg" ? "bg-green-500 text-white" : tiffin.category === "Non-Veg" ? "bg-red-500 text-white" : "bg-purple-500 text-white"} border-0 font-semibold shadow-lg`}>
                               {tiffin.category}
                             </Badge>
                           </div>
-
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="absolute top-3 right-3 w-10 h-10 bg-white/90 backdrop-blur-sm rounded-full shadow-lg hover:bg-white hover:scale-110 transition-all duration-300"
-                          >
-                            <Heart className="w-5 h-5 text-gray-600" />
+                          <Button variant="ghost" size="icon" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} className="absolute top-3 right-3 w-9 h-9 bg-white/90 backdrop-blur-sm rounded-full shadow-lg hover:bg-white hover:scale-110 transition-all duration-300">
+                            <Bookmark className="w-4 h-4 text-gray-700" />
                           </Button>
                         </div>
-
-                        <div className="p-6">
-                          <div className="flex items-start justify-between mb-3">
-                            <h3 className="text-xl font-bold text-gray-800 line-clamp-1 group-hover:text-red-500 transition-colors">
-                              {tiffin.title}
-                            </h3>
-                            <div className="flex items-center gap-1 bg-green-100 text-green-700 px-2 py-1 rounded-full text-sm font-semibold">
-                              <Star className="w-3 h-3 fill-green-500 text-green-500" />
+                        <div className="p-4 sm:p-5">
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <h3 className="text-lg sm:text-xl font-bold text-gray-900 line-clamp-1 group-hover:text-red-500 transition-colors">{tiffin.title}</h3>
+                            <div className="flex items-center gap-1 bg-green-600 text-white px-2 py-0.5 rounded-md text-sm font-semibold shrink-0">
+                              <Star className="w-3 h-3 fill-white" />
                               <span>{(4.4 + ((tiffin._id.charCodeAt(0) + tiffin._id.charCodeAt(tiffin._id.length - 1)) % 6 * 0.1)).toFixed(1)}</span>
                             </div>
                           </div>
-
-                          <p className="text-gray-600 text-sm mb-4 line-clamp-2 leading-relaxed">
-                            {tiffin.description}
-                          </p>
-
-                          <div className="flex items-center gap-3 mb-4">
-                            <div className="w-8 h-8 bg-gradient-to-br from-red-500 to-red-600 rounded-full flex items-center justify-center shadow-lg">
-                              <span className="text-white text-xs font-bold">T</span>
-                            </div>
-                            <div>
-                              <div className="font-semibold text-gray-800 text-sm">
-                                {tiffin.seller.shopName}
-                              </div>
-                              <div className="flex items-center gap-2 text-xs text-gray-500">
-                                <MapPin className="w-3 h-3" />
-                                {tiffin.seller.city} • 2.5 km
-                              </div>
-                            </div>
+                          <div className="flex items-center flex-wrap gap-x-2 gap-y-1 text-sm text-gray-500 mb-3">
+                            <span className="flex items-center gap-1"><Clock4 className="w-3.5 h-3.5" />20-25 mins</span>
+                            <span>|</span>
+                            <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{tiffin.seller.city} • 2.5 km</span>
+                            <span>|</span>
+                            <span className="flex items-center gap-1 text-green-600 font-medium"><Truck className="w-3.5 h-3.5" />Free</span>
                           </div>
-
-                          <div className="flex items-center justify-between pt-4 border-t border-gray-100">
-                            <div className="flex items-center gap-2">
-                              <div className="flex items-center gap-1 text-lg font-bold text-gray-800">
-                                <IndianRupee className="w-4 h-4" />
-                                <span>{tiffin.price}</span>
-                              </div>
-                              <div className="flex flex-col">
-                                <span className="text-sm text-gray-500 line-through">
-                                  <IndianRupee className="w-3 h-3 inline" />
-                                  {Math.round(tiffin.price * 1.2)}
-                                </span>
-                                <span className="text-xs text-green-600 font-semibold">
-                                  You save ₹{Math.round(tiffin.price * 0.2)}
-                                </span>
-                              </div>
+                          <div className="flex items-center gap-2 pt-3 border-t border-dashed border-gray-200">
+                            <div className="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
+                              <Tag className="w-3 h-3 text-white" />
                             </div>
-                            
-                            <div className="flex items-center gap-2">
-                              <div className="flex items-center gap-1 text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full">
-                                <Truck className="w-3 h-3" />
-                                FREE
-                              </div>
-                              <Link href={`/tiffin/${tiffin._id}`}>
-                                <Button className="bg-red-500 hover:bg-red-600 text-white px-4 rounded-full font-semibold shadow-lg shadow-red-200 hover:scale-105 transition-transform">
-                                  Order Now
-                                </Button>
-                              </Link>
-                            </div>
+                            <span className="text-sm font-medium text-gray-700">
+                              Flat ₹{Math.round(tiffin.price * 0.2)} OFF · <span className="text-gray-400 line-through">₹{Math.round(tiffin.price * 1.2)}</span> <span className="font-bold text-gray-900">₹{tiffin.price}</span>
+                            </span>
                           </div>
+                          <Button size="sm" onClick={(e) => handleQuickAddToCart(e, tiffin)} className="w-full mt-3 h-8 text-xs font-semibold bg-white border border-red-500 text-red-600 hover:bg-red-500 hover:text-white rounded-lg shadow-sm transition-colors">
+                            <ShoppingCart className="w-3.5 h-3.5 mr-1.5" />
+                            Add to Cart
+                          </Button>
                         </div>
                       </Card>
+                    </Link>
                   ))}
                 </div>
               )}
@@ -1382,45 +1188,51 @@ export default function Home() {
 
             {/* Popular Tab */}
             <TabsContent value="popular" className="mt-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
                 {popularTiffins.map((tiffin, index) => (
-                
-                    <Card className="overflow-hidden border-0 shadow-lg rounded-2xl group hover:shadow-xl transition-all duration-500 transform hover:-translate-y-2 hover:scale-105">
-                      <div className="relative h-48 overflow-hidden">
-                        <img
-                          src={categoryImages[tiffin.category]}
-                          alt={tiffin.title}
-                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                        />
-                        <div className="absolute top-3 left-3 bg-blue-500 text-white px-3 py-1 rounded-full text-sm font-semibold shadow-lg">
-                          {tiffin.serviceType === "tiffin" ? "🍱 Tiffin" : "🍛 Meal"}
+                  <Link key={tiffin._id} href={`/tiffin/${tiffin._id}`}>
+                    <Card className="overflow-hidden border-0 shadow-lg rounded-2xl group hover:shadow-2xl transition-all duration-500 cursor-pointer transform hover:-translate-y-1">
+                      <div className="relative h-48 sm:h-52 overflow-hidden">
+                        <img src={categoryImages[tiffin.category]} alt={tiffin.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                        <div className="absolute top-3 left-3 flex flex-col items-start gap-2">
+                          <div className="bg-blue-500 text-white px-3 py-1 rounded-full text-xs font-semibold shadow-lg">🍛 Meal</div>
+                          <div className="bg-emerald-600 text-white px-3 py-1 rounded-full text-xs font-semibold shadow-lg">⚡ Instant Delivery</div>
+                          <div className="bg-red-500 text-white px-3 py-1 rounded-full text-xs font-semibold shadow-lg">Popular 🔥</div>
                         </div>
-                        <div className="absolute top-3 right-3 bg-red-500 text-white px-3 py-1 rounded-full text-sm font-semibold shadow-lg">
-                          Popular 🔥
-                        </div>
+                        <Button variant="ghost" size="icon" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} className="absolute top-3 right-3 w-9 h-9 bg-white/90 backdrop-blur-sm rounded-full shadow-lg hover:bg-white hover:scale-110 transition-all duration-300">
+                          <Bookmark className="w-4 h-4 text-gray-700" />
+                        </Button>
                       </div>
-                      <div className="p-6">
-                        <h3 className="text-xl font-bold text-gray-800 mb-2">{tiffin.title}</h3>
-                        <p className="text-gray-600 text-sm mb-4 line-clamp-2">{tiffin.description}</p>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <div className="flex items-center gap-1 text-lg font-bold text-gray-800">
-                              <IndianRupee className="w-4 h-4" />
-                              <span>{tiffin.price}</span>
-                            </div>
-                            <div className="flex items-center gap-1 text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
-                              <Star className="w-3 h-3 fill-green-500 text-green-500" />
-                              4.5
-                            </div>
+                      <div className="p-4 sm:p-5">
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <h3 className="text-lg sm:text-xl font-bold text-gray-900 line-clamp-1 group-hover:text-red-500 transition-colors">{tiffin.title}</h3>
+                          <div className="flex items-center gap-1 bg-green-600 text-white px-2 py-0.5 rounded-md text-sm font-semibold shrink-0">
+                            <Star className="w-3 h-3 fill-white" />
+                            <span>4.5</span>
                           </div>
-                          <Link href={`/tiffin/${tiffin._id}`}>
-                            <Button className="bg-red-500 hover:bg-red-600 text-white rounded-full hover:scale-105 transition-transform">
-                              Order Now
-                            </Button>
-                          </Link>
                         </div>
+                        <div className="flex items-center flex-wrap gap-x-2 gap-y-1 text-sm text-gray-500 mb-3">
+                          <span className="flex items-center gap-1"><Clock4 className="w-3.5 h-3.5" />20-25 mins</span>
+                          <span>|</span>
+                          <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{tiffin.seller.city} • 2.5 km</span>
+                          <span>|</span>
+                          <span className="flex items-center gap-1 text-green-600 font-medium"><Truck className="w-3.5 h-3.5" />Free</span>
+                        </div>
+                        <div className="flex items-center gap-2 pt-3 border-t border-dashed border-gray-200">
+                          <div className="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
+                            <Tag className="w-3 h-3 text-white" />
+                          </div>
+                          <span className="text-sm font-medium text-gray-700">
+                            Flat ₹{Math.round(tiffin.price * 0.2)} OFF · <span className="text-gray-400 line-through">₹{Math.round(tiffin.price * 1.2)}</span> <span className="font-bold text-gray-900">₹{tiffin.price}</span>
+                          </span>
+                        </div>
+                        <Button size="sm" onClick={(e) => handleQuickAddToCart(e, tiffin)} className="w-full mt-3 h-8 text-xs font-semibold bg-white border border-red-500 text-red-600 hover:bg-red-500 hover:text-white rounded-lg shadow-sm transition-colors">
+                          <ShoppingCart className="w-3.5 h-3.5 mr-1.5" />
+                          Add to Cart
+                        </Button>
                       </div>
                     </Card>
+                  </Link>
                 ))}
               </div>
             </TabsContent>
@@ -1428,7 +1240,7 @@ export default function Home() {
             {/* Top Rated Tab */}
             <TabsContent value="top-rated" className="mt-6">
               {isLoading ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
                   {[...Array(6)].map((_, i) => (
                     <Card key={i} className="overflow-hidden border-0 shadow-lg rounded-2xl">
                       <Skeleton className="h-48 w-full rounded-2xl" />
@@ -1447,150 +1259,79 @@ export default function Home() {
               ) : (() => {
                 const topRatedSellerIds = topRatedSellers.map(seller => seller._id);
                 const topRatedShopNames = topRatedSellers.map(seller => seller.shopName.toLowerCase());
-                
                 const topRatedTiffins = filteredTiffins.filter(tiffin => {
                   const isFromTopRatedSeller = topRatedSellerIds.includes(tiffin.seller._id);
                   const isFromTopRatedShop = topRatedShopNames.includes(tiffin.seller.shopName.toLowerCase());
-                  
                   return isFromTopRatedSeller || isFromTopRatedShop;
                 });
-
                 return topRatedTiffins.length === 0 ? (
                   <div className="text-center py-12">
                     <div className="w-20 h-20 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
                       <Star className="w-8 h-8 text-yellow-400" />
                     </div>
                     <h3 className="text-xl font-semibold text-gray-800 mb-2">No top rated items found</h3>
-                    <p className="text-gray-600 mb-4">
-                      {topRatedSellers.length > 0 
-                        ? "Top rated sellers found, but no matching tiffins with current filters"
-                        : "No top rated sellers available yet"
-                      }
-                    </p>
-                    
-                    <Button 
-                      onClick={() => {
-                        setSearchQuery("");
-                        setSelectedCategory(null);
-                        setSelectedCity(null);
-                        setSelectedFoodType(null);
-                        setSelectedFoodCategory(null);
-                      }}
-                      className="bg-red-500 hover:bg-red-600 text-white rounded-full hover:scale-105 transition-transform"
-                    >
+                    <p className="text-gray-600 mb-4">{topRatedSellers.length > 0 ? "Top rated sellers found, but no matching tiffins with current filters" : "No top rated sellers available yet"}</p>
+                    <Button onClick={() => { setSearchQuery(""); setSelectedCategory(null); setSelectedCity(null); setSelectedFoodCategory(null); setVegMode(true); }} className="bg-red-500 hover:bg-red-600 text-white rounded-full hover:scale-105 transition-transform">
                       Clear Filters
                     </Button>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
                     {topRatedTiffins.map((tiffin, index) => (
-                  
-                        <Card className="overflow-hidden border-0 shadow-lg hover:shadow-2xl transition-all duration-500 cursor-pointer group rounded-2xl transform hover:-translate-y-2 hover:scale-105 border-2 border-yellow-200">
-                          <div className="relative h-48 overflow-hidden">
-                            <img
-                              src={categoryImages[tiffin.category]}
-                              alt={tiffin.title}
-                              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                            />
-                            
-                            {/* Top Rated Badge */}
-                            <div className="absolute top-3 right-3 bg-yellow-500 text-white px-3 py-1 rounded-full text-sm font-semibold shadow-lg flex items-center gap-1">
-                              <Star className="w-3 h-3 fill-white" />
-                              Top Rated
+                      <Link key={tiffin._id} href={`/tiffin/${tiffin._id}`}>
+                        <Card className="overflow-hidden border-0 shadow-lg hover:shadow-2xl transition-all duration-500 cursor-pointer group rounded-2xl transform hover:-translate-y-1 border-2 border-yellow-200">
+                          <div className="relative h-48 sm:h-52 overflow-hidden">
+                            <img src={categoryImages[tiffin.category]} alt={tiffin.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                            <div className="absolute top-3 left-3 flex flex-col items-start gap-2">
+                              <div className="bg-blue-500 text-white px-3 py-1 rounded-full text-xs font-semibold shadow-lg">🍛 Meal</div>
+                              <div className="bg-emerald-600 text-white px-3 py-1 rounded-full text-xs font-semibold shadow-lg">⚡ Instant Delivery</div>
+                              <div className="bg-yellow-500 text-white px-3 py-1 rounded-full text-xs font-semibold shadow-lg flex items-center gap-1">
+                                <Star className="w-3 h-3 fill-white" />Top Rated
+                              </div>
                             </div>
-
-                            <div className="absolute top-3 left-3 bg-blue-500 text-white px-3 py-1 rounded-full text-sm font-semibold shadow-lg">
-                              {tiffin.serviceType === "tiffin" ? "🍱 Tiffin" : "🍛 Meal"}
-                            </div>
-
                             <div className="absolute bottom-3 left-3">
-                              <Badge className={`${
-                                tiffin.category === "Veg" 
-                                  ? "bg-green-500 text-white" 
-                                  : tiffin.category === "Non-Veg"
-                                  ? "bg-red-500 text-white"
-                                  : "bg-purple-500 text-white"
-                              } border-0 font-semibold shadow-lg`}>
+                              <Badge className={`${tiffin.category === "Veg" ? "bg-green-500 text-white" : tiffin.category === "Non-Veg" ? "bg-red-500 text-white" : "bg-purple-500 text-white"} border-0 font-semibold shadow-lg`}>
                                 {tiffin.category}
                               </Badge>
                             </div>
-
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="absolute top-3 right-12 w-10 h-10 bg-white/90 backdrop-blur-sm rounded-full shadow-lg hover:bg-white hover:scale-110 transition-all duration-300"
-                            >
-                              <Heart className="w-5 h-5 text-gray-600" />
+                            <Button variant="ghost" size="icon" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} className="absolute top-3 right-3 w-9 h-9 bg-white/90 backdrop-blur-sm rounded-full shadow-lg hover:bg-white hover:scale-110 transition-all duration-300">
+                              <Bookmark className="w-4 h-4 text-gray-700" />
                             </Button>
                           </div>
-
-                          <div className="p-6">
-                            <div className="flex items-start justify-between mb-3">
-                              <h3 className="text-xl font-bold text-gray-800 line-clamp-1 group-hover:text-red-500 transition-colors">
-                                {tiffin.title}
-                              </h3>
-                              <div className="flex items-center gap-1 bg-green-100 text-green-700 px-2 py-1 rounded-full text-sm font-semibold">
-                                <Star className="w-3 h-3 fill-green-500 text-green-500" />
+                          <div className="p-4 sm:p-5">
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                              <h3 className="text-lg sm:text-xl font-bold text-gray-900 line-clamp-1 group-hover:text-red-500 transition-colors">{tiffin.title}</h3>
+                              <div className="flex items-center gap-1 bg-green-600 text-white px-2 py-0.5 rounded-md text-sm font-semibold shrink-0">
+                                <Star className="w-3 h-3 fill-white" />
                                 <span>{(4.4 + ((tiffin._id.charCodeAt(0) + tiffin._id.charCodeAt(tiffin._id.length - 1)) % 6 * 0.1)).toFixed(1)}</span>
                               </div>
                             </div>
-
-                            <p className="text-gray-600 text-sm mb-4 line-clamp-2 leading-relaxed">
-                              {tiffin.description}
-                            </p>
-
-                            <div className="flex items-center gap-3 mb-4">
-                              <div className="w-8 h-8 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-full flex items-center justify-center shadow-lg">
-                                <span className="text-white text-xs font-bold">
-                                  {tiffin.seller.shopName.charAt(0)}
-                                </span>
-                              </div>
-                              <div>
-                                <div className="font-semibold text-gray-800 text-sm flex items-center gap-2">
-                                  {tiffin.seller.shopName}
-                                  <Badge className="bg-yellow-100 text-yellow-700 border-0 text-xs">
-                                    Top Seller
-                                  </Badge>
-                                </div>
-                                <div className="flex items-center gap-2 text-xs text-gray-500">
-                                  <MapPin className="w-3 h-3" />
-                                  {tiffin.seller.city} • 2.5 km
-                                </div>
-                              </div>
+                            <div className="flex items-center gap-2 text-sm text-gray-700 mb-2">
+                              <span className="font-medium">{tiffin.seller.shopName}</span>
+                              <Badge className="bg-yellow-100 text-yellow-700 border-0 text-xs">Top Seller</Badge>
                             </div>
-
-                            <div className="flex items-center justify-between pt-4 border-t border-gray-100">
-                              <div className="flex items-center gap-2">
-                                <div className="flex items-center gap-1 text-lg font-bold text-gray-800">
-                                  <IndianRupee className="w-4 h-4" />
-                                  <span>{tiffin.price}</span>
-                                </div>
-                                <div className="flex flex-col">
-                                  <span className="text-sm text-gray-500 line-through">
-                                    <IndianRupee className="w-3 h-3 inline" />
-                                    {Math.round(tiffin.price * 1.2)}
-                                  </span>
-                                  <span className="text-xs text-green-600 font-semibold">
-                                    You save ₹{Math.round(tiffin.price * 0.2)}
-                                  </span>
-                                </div>
-                              </div>
-                              
-                              <div className="flex items-center gap-2">
-                                <div className="flex items-center gap-1 text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full">
-                                  <Truck className="w-3 h-3" />
-                                  FREE
-                                </div>
-                                <Link href={`/tiffin/${tiffin._id}`}>
-                                  <Button className="bg-red-500 hover:bg-red-600 text-white px-4 rounded-full font-semibold shadow-lg shadow-red-200 hover:scale-105 transition-transform">
-                                    Order Now
-                                  </Button>
-                                </Link>
-                              </div>
+                            <div className="flex items-center flex-wrap gap-x-2 gap-y-1 text-sm text-gray-500 mb-3">
+                              <span className="flex items-center gap-1"><Clock4 className="w-3.5 h-3.5" />20-25 mins</span>
+                              <span>|</span>
+                              <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{tiffin.seller.city} • 2.5 km</span>
+                              <span>|</span>
+                              <span className="flex items-center gap-1 text-green-600 font-medium"><Truck className="w-3.5 h-3.5" />Free</span>
                             </div>
+                            <div className="flex items-center gap-2 pt-3 border-t border-dashed border-gray-200">
+                              <div className="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
+                                <Tag className="w-3 h-3 text-white" />
+                              </div>
+                              <span className="text-sm font-medium text-gray-700">
+                                Flat ₹{Math.round(tiffin.price * 0.2)} OFF · <span className="text-gray-400 line-through">₹{Math.round(tiffin.price * 1.2)}</span> <span className="font-bold text-gray-900">₹{tiffin.price}</span>
+                              </span>
+                            </div>
+                            <Button size="sm" onClick={(e) => handleQuickAddToCart(e, tiffin)} className="w-full mt-3 h-8 text-xs font-semibold bg-white border border-red-500 text-red-600 hover:bg-red-500 hover:text-white rounded-lg shadow-sm transition-colors">
+                              <ShoppingCart className="w-3.5 h-3.5 mr-1.5" />
+                              Add to Cart
+                            </Button>
                           </div>
                         </Card>
-    
+                      </Link>
                     ))}
                   </div>
                 );
@@ -1600,18 +1341,9 @@ export default function Home() {
         </div>
       </section>
 
-      <LocationPickerModal
-        isOpen={showLocationPicker}
-        onClose={() => setShowLocationPicker(false)}
-        onConfirm={handleLocationConfirm}
-        initialCoords={
-          deliverFor === "other" && recipientDetails.lat && recipientDetails.lng
-            ? { lat: recipientDetails.lat, lng: recipientDetails.lng }
-            : userLocation.lat && userLocation.lng
-            ? { lat: userLocation.lat, lng: userLocation.lng }
-            : undefined
-        }
-      />
+      <LocationPickerModal isOpen={showLocationPicker} onClose={() => setShowLocationPicker(false)} onConfirm={handleLocationConfirm} initialCoords={deliverFor === "other" && recipientDetails.lat && recipientDetails.lng ? { lat: recipientDetails.lat, lng: recipientDetails.lng } : userLocation.lat && userLocation.lng ? { lat: userLocation.lat, lng: userLocation.lng } : undefined} />
+
+      <TiffinOverlay isOpen={showTiffinOverlay} onClose={() => setShowTiffinOverlay(false)} tiffins={tiffinsData} isLoading={isLoading} onTiffinClick={handleTiffinClick} />
 
       {showLoginPopup && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -1620,126 +1352,58 @@ export default function Home() {
               <h2 className="text-2xl font-bold text-gray-800 mb-2">Welcome to Tiffo</h2>
               <p className="text-gray-600">Choose how you want to continue</p>
             </div>
-
             <div className="space-y-4">
-              <Button 
-                onClick={() => handleLogin("customer")}
-                className="w-full bg-red-500 hover:bg-red-600 text-white py-4 rounded-xl text-base font-semibold transition-all hover:scale-105"
-              >
-                <User className="w-5 h-5 mr-3" />
-                Continue as Customer
+              <Button onClick={() => handleLogin("customer")} className="w-full bg-red-500 hover:bg-red-600 text-white py-4 rounded-xl text-base font-semibold transition-all hover:scale-105">
+                <User className="w-5 h-5 mr-3" />Continue as Customer
               </Button>
-
-              <Button 
-                onClick={() => handleLogin("seller")}
-                className="w-full bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-xl text-base font-semibold transition-all hover:scale-105"
-              >
-                <ChefHat className="w-5 h-5 mr-3" />
-                Continue as Seller
+              <Button onClick={() => handleLogin("seller")} className="w-full bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-xl text-base font-semibold transition-all hover:scale-105">
+                <ChefHat className="w-5 h-5 mr-3" />Continue as Seller
               </Button>
             </div>
-
-            <Button 
-              onClick={() => setShowLoginPopup(false)}
-              variant="ghost" 
-              className="w-full mt-4 text-gray-500 hover:text-gray-700"
-            >
-              Close
-            </Button>
+            <Button onClick={() => setShowLoginPopup(false)} variant="ghost" className="w-full mt-4 text-gray-500 hover:text-gray-700">Close</Button>
           </div>
         </div>
       )}
 
       {isScrolled && (
-        <Button
-          onClick={scrollToTop}
-          className="fixed bottom-6 right-6 z-40 w-12 h-12 bg-red-500 hover:bg-red-600 text-white rounded-full shadow-2xl transition-all duration-300 hover:scale-110"
-          size="icon"
-        >
+        <Button onClick={scrollToTop} className="fixed bottom-24 lg:bottom-6 right-4 sm:right-6 z-40 w-11 h-11 sm:w-12 sm:h-12 bg-red-500 hover:bg-red-600 text-white rounded-full shadow-2xl transition-all duration-300 hover:scale-110" size="icon">
           <Navigation className="w-5 h-5" />
         </Button>
       )}
 
-      {/* Sticky Bottom Navigation Bar */}
-<div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-40 lg:hidden">
-  <div className="flex justify-around items-center py-3">
-    
-    {/* Home Button */}
-    <Link href="/" className="flex flex-col items-center">
-      <div className={`w-6 h-6 flex items-center justify-center ${
-        location === '/' ? 'text-red-500' : 'text-gray-600'
-      }`}>
-        🏠
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-40 lg:hidden">
+        <div className="flex justify-around items-end pt-2 pb-2 relative max-w-md mx-auto sm:max-w-xl">
+          <Link href="/" className="flex flex-col items-center gap-1 w-1/5">
+            <PackageCheck className={`w-6 h-6 ${location === '/' ? 'text-orange-500' : 'text-gray-500'}`} />
+            <span className={`text-[11px] ${location === '/' ? 'text-orange-500 font-bold' : 'text-gray-600'}`}>Delivery</span>
+          </Link>
+          <Link href="/my-subscriptions" className="flex flex-col items-center gap-1 w-1/5">
+            <CalendarCheck className={`w-6 h-6 ${location === '/my-subscriptions' ? 'text-orange-500' : 'text-gray-500'}`} />
+            <span className={`text-[11px] ${location === '/my-subscriptions' ? 'text-orange-500 font-bold' : 'text-gray-600'}`}>Subscriptions</span>
+          </Link>
+          <a href="https://mayankgautam008.github.io/story-rewards-for-tifo/" target="_blank" rel="noopener noreferrer" className="flex flex-col items-center gap-1 w-1/5">
+            <BadgePercent className="w-6 h-6 text-gray-500" />
+            <span className="text-[11px] text-gray-600">Offer's</span>
+          </a>
+          <div className="flex flex-col items-center w-1/5 -mt-7">
+            <button onClick={() => setShowTiffinOverlay(true)} className="w-14 h-14 rounded-full bg-red-600 shadow-lg border-4 border-white flex items-center justify-center">
+              <div className="relative">
+                <ChefHat className="w-6 h-6 text-white" />
+                <PlusCircle className="w-3.5 h-3.5 text-white absolute -bottom-1 -right-1 bg-red-600 rounded-full" />
+              </div>
+            </button>
+            <span className="text-[11px] font-bold text-gray-800 mt-1">New Tiffin</span>
+          </div>
+          <Link href="/my-bookings" className="flex flex-col items-center gap-1 w-1/5">
+            <BookOpen className={`w-6 h-6 ${location === '/my-bookings' ? 'text-orange-500' : 'text-gray-500'}`} />
+            <span className={`text-[11px] ${location === '/my-bookings' ? 'text-orange-500 font-bold' : 'text-gray-600'}`}>Orders</span>
+          </Link>
+        </div>
       </div>
-      <span className={`text-xs mt-1 ${
-        location === '/' ? 'text-red-500 font-bold' : 'text-gray-600'
-      }`}>
-        Home
-      </span>
-    </Link>
 
-    {/* Orders Button */}
-    <Link href="/my-bookings" className="flex flex-col items-center">
-      <div className={`w-6 h-6 flex items-center justify-center ${
-        location === '/my-bookings' ? 'text-red-500' : 'text-gray-600'
-      }`}>
-        📦
-      </div>
-      <span className={`text-xs mt-1 ${
-        location === '/my-bookings' ? 'text-red-500 font-bold' : 'text-gray-600'
-      }`}>
-        Orders
-      </span>
-    </Link>
-
-    {/* APK Button */}
-    <button 
-      onClick={() => window.open('https://drive.google.com/drive/folders/1Jasyg4kz-8OlaIr2u-f_Hn0qwrAL82AC', '_blank')}
-      className="flex flex-col items-center"
-    >
-      <div className="w-6 h-6 flex items-center justify-center text-gray-600">
-        📱
-      </div>
-      <span className="text-xs mt-1 text-gray-600">
-        APP
-      </span>
-    </button>
-
-    {/* Offers Button */}
-    <Link href="/offers" className="flex flex-col items-center">
-      <div className={`w-6 h-6 flex items-center justify-center ${
-        location === '/offers' ? 'text-red-500' : 'text-gray-600'
-      }`}>
-        🎁
-      </div>
-      <span className={`text-xs mt-1 ${
-        location === '/offers' ? 'text-red-500 font-bold' : 'text-gray-600'
-      }`}>
-        Offers
-      </span>
-    </Link>
-
-    {/* Help Button */}
-    <Link href="/help" className="flex flex-col items-center">
-      <div className={`w-6 h-6 flex items-center justify-center ${
-        location === '/help' ? 'text-red-500' : 'text-gray-600'
-      }`}>
-        ❓
-      </div>
-      <span className={`text-xs mt-1 ${
-        location === '/help' ? 'text-red-500 font-bold' : 'text-gray-600'
-      }`}>
-        Help
-      </span>
-    </Link>
-
-  </div>
-</div>
-
-      {/* Footer */}
-      <footer className="bg-gray-900 text-white py-12">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <footer className="bg-gray-900 text-white py-10 sm:py-12">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
             <div>
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-8 h-8 bg-red-500 rounded-lg flex items-center justify-center">
@@ -1747,78 +1411,41 @@ export default function Home() {
                 </div>
                 <span className="font-bold text-xl">Tiffo</span>
               </div>
-              <p className="text-gray-400 text-sm mb-4 leading-relaxed">
-                Delivering homemade happiness to your doorstep. Fresh, hygienic, and delicious tiffins from trusted kitchens.
-              </p>
+              <p className="text-gray-400 text-sm mb-4 leading-relaxed">Delivering homemade happiness to your doorstep. Fresh, hygienic, and delicious tiffins from trusted kitchens.</p>
               <div className="flex gap-3">
                 <Facebook className="w-5 h-5 text-gray-400 hover:text-white cursor-pointer transition-colors hover:scale-110" />
                 <Twitter className="w-5 h-5 text-gray-400 hover:text-white cursor-pointer transition-colors hover:scale-110" />
-                <a
-                  href="https://www.instagram.com/tiffo.official"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
+                <a href="https://www.instagram.com/tiffo.official" target="_blank" rel="noopener noreferrer">
                   <Instagram className="w-5 h-5 text-gray-400 hover:text-white cursor-pointer transition-colors hover:scale-110" />
                 </a>
               </div>
             </div>
-
             <div>
               <h3 className="font-semibold mb-3">Quick Links</h3>
               <ul className="space-y-2 text-gray-400 text-sm">
                 <li className="hover:text-white cursor-pointer transition-colors hover:translate-x-1 transform"><a href="/about">About Us</a></li>
                 <li className="hover:text-white cursor-pointer transition-colors hover:translate-x-1 transform"><a href="/register">Partner With Us</a></li>
-                <li className="hover:text-white cursor-pointer transition-colors hover:translate-x-1 transform">
-                  <a 
-                    href="https://wa.me/918115067311" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1"
-                  >
-                    Contact Us
-                  </a>
-                </li>
+                <li className="hover:text-white cursor-pointer transition-colors hover:translate-x-1 transform"><a href="https://wa.me/918115067311" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1">Contact Us</a></li>
               </ul>
             </div>
-
             <div>
               <h3 className="font-semibold mb-3">Legal</h3>
               <ul className="space-y-2 text-gray-400 text-sm">
-                <li className="hover:text-white cursor-pointer transition-colors hover:translate-x-1 transform">
-                  <Link href="/terms-conditions">Terms & Conditions</Link>
-                </li>
-                <li className="hover:text-white cursor-pointer transition-colors hover:translate-x-1 transform">
-                  <Link href="/privacy-policy">Privacy Policy</Link>
-                </li>
-                <li className="hover:text-white cursor-pointer transition-colors hover:translate-x-1 transform">
-                  <a href="/cookie-policy">Cookie Policy</a>
-                </li>
+                <li className="hover:text-white cursor-pointer transition-colors hover:translate-x-1 transform"><Link href="/terms-conditions">Terms & Conditions</Link></li>
+                <li className="hover:text-white cursor-pointer transition-colors hover:translate-x-1 transform"><Link href="/privacy-policy">Privacy Policy</Link></li>
+                <li className="hover:text-white cursor-pointer transition-colors hover:translate-x-1 transform"><a href="/cookie-policy">Cookie Policy</a></li>
               </ul>
             </div>
-
             <div>
               <h3 className="font-semibold mb-3">Contact Us</h3>
               <div className="space-y-2 text-gray-400 text-sm">
-                <a href="tel:+918115067311" className="flex items-center gap-2 hover:text-white transition-colors">
-                  <Phone className="w-4 h-4" />
-                  <span>+91 8115067311</span>
-                </a>
-                <a href="tel:+918115067311" className="flex items-center gap-2 hover:text-white transition-colors">
-                  <Phone className="w-4 h-4" />
-                  <span>+91 9670421522</span>
-                </a>
-                <div className="flex items-center gap-2 hover:text-white transition-colors">
-                  <Mail className="w-4 h-4" />
-                  <span>help@tiffo.com</span>
-                </div>
-                <div className="flex items-center gap-2 hover:text-white transition-colors">
-                  <MapPin className="w-4 h-4" />
-                  <span>Lucknow(Uttar Pradesh), India</span>
-                </div>
+                <a href="tel:+918115067311" className="flex items-center gap-2 hover:text-white transition-colors"><Phone className="w-4 h-4" /><span>+91 8115067311</span></a>
+                <a href="tel:+918115067311" className="flex items-center gap-2 hover:text-white transition-colors"><Phone className="w-4 h-4" /><span>+91 9670421522</span></a>
+                <div className="flex items-center gap-2 hover:text-white transition-colors"><Mail className="w-4 h-4" /><span>help@tiffo.com</span></div>
+                <div className="flex items-center gap-2 hover:text-white transition-colors"><MapPin className="w-4 h-4" /><span>Lucknow(Uttar Pradesh), India</span></div>
               </div>
             </div>
           </div>
-
           <div className="border-t border-gray-800 mt-8 pt-6 text-center text-gray-400 text-sm">
             <p>&copy; 2025 Tiffo. All rights reserved.</p>
           </div>
