@@ -9,6 +9,7 @@ import Home from "@/pages/home";
 import Login from "@/pages/login";
 import Register from "@/pages/register";
 import TiffinDetail from "@/pages/tiffin-detail";
+import SellerMenu from "@/pages/seller-menu";
 import CartPage from "@/pages/cart";
 import MyBookings from "@/pages/my-bookings";
 import MySubscriptions from "@/pages/my-subscriptions";
@@ -33,6 +34,7 @@ function Router() {
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
       <Route path="/tiffin/:id" component={TiffinDetail} />
+      <Route path="/seller/:id" component={SellerMenu} />
       <Route path="/cart" component={CartPage} />
       <Route path="/my-bookings" component={MyBookings} />
       <Route path="/my-subscriptions" component={MySubscriptions} />

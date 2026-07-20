@@ -762,6 +762,35 @@ export default function Home() {
   }, [charIndex, isDeleting, placeholderIndex]);
 
   const { data: allItems = [], isLoading } = useQuery<TiffinWithSeller[]>({ queryKey: ["/api/tiffins"] });
+
+  // Unique list of sellers/cafes derived from all live items, used for the
+  // "Cafes & Sellers" row on the home page — clicking a card opens that
+  // seller's full menu at /seller/:id.
+  const sellerCards = (() => {
+    const map = new Map<string, { _id: string; shopName: string; city?: string; image: string; rating: number; itemCount: number; isPureVeg: boolean }>();
+    for (const item of allItems as TiffinWithSeller[]) {
+      const seller = (item as any).seller;
+      if (!seller?._id) continue;
+      const existing = map.get(seller._id);
+      if (existing) {
+        existing.itemCount += 1;
+        if (item.category === "Non-Veg") existing.isPureVeg = false;
+        if (!existing.image && item.imageUrl) existing.image = item.imageUrl;
+      } else {
+        map.set(seller._id, {
+          _id: seller._id,
+          shopName: seller.shopName,
+          city: seller.city,
+          image: item.imageUrl || "",
+          rating: seller.ratingStats?.averageRating || 0,
+          itemCount: 1,
+          isPureVeg: item.category !== "Non-Veg",
+        });
+      }
+    }
+    return Array.from(map.values());
+  })();
+
   const meals = allItems.filter((i: any) => i.serviceType !== "tiffin" || !i.serviceType);
   const tiffinsData = allItems.filter((i: any) => i.serviceType === "tiffin").map((i: any) => {
     const trialPrice = i.trialPrice || Math.round(i.price * 0.85);
@@ -800,10 +829,14 @@ export default function Home() {
   ];
 
   // Filtered meals
+  // Note: the dish-type filter below matches purely against whatever text
+  // is typed in a category's `label` (see `dishCategories` further down) —
+  // so renaming a chip's label (e.g. "Burger" -> "Momos") automatically
+  // changes what it fetches, with no separate keyword list to keep in sync.
   const filteredTiffins = meals.filter((tiffin) => {
     const matchesSearch = !searchQuery || tiffin.title.toLowerCase().includes(searchQuery.toLowerCase()) || tiffin.seller.shopName.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCategory = !selectedCategory || tiffin.category === selectedCategory;
-    const matchesFoodCategory = !selectedFoodCategory || tiffin.title.toLowerCase().includes(selectedFoodCategory.toLowerCase()) || tiffin.description.toLowerCase().includes(selectedFoodCategory.toLowerCase());
+    const matchesFoodCategory = !selectedFoodCategory || tiffin.title.toLowerCase().includes(selectedFoodCategory.toLowerCase());
     const matchesPrice = !selectedPriceRange || (() => {
       const range = priceRanges.find(r => r.value === selectedPriceRange);
       if (!range) return true;
@@ -816,6 +849,7 @@ export default function Home() {
     
     return matchesSearch && matchesCategory && matchesFoodCategory && matchesPrice && matchesVegMode;
   });
+
 
   const popularTiffins = filteredTiffins.slice(0, 6);
 
@@ -833,6 +867,34 @@ export default function Home() {
 
   const handleTiffinClick = (tiffin: any) => { setShowTiffinOverlay(false); setLocation(`/tiffin/${tiffin._id}`); };
   const scrollToTop = () => { window.scrollTo({ top: 0, behavior: 'smooth' }); };
+
+  // Dish-type shortcuts shown in the sticky category bar above "Best Food
+  // Near You" — tapping one jumps straight to that dish type using the
+  // existing food-category filter.
+  const dishCategories = [
+    { label: "All", img: "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=100&h=100&fit=crop" },
+    { label: "Thali", img: "https://images.unsplash.com/photo-1601050690597-df0568f70950?w=100&h=100&fit=crop" },
+    { label: "Pizza", img: "https://images.unsplash.com/photo-1513104890138-7c749659a591?w=100&h=100&fit=crop" },
+    { label: "Biryani", img: "https://images.unsplash.com/photo-1633945274405-b6c8069047b0?w=100&h=100&fit=crop" },
+    { label: "Burger", img: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=100&h=100&fit=crop" },
+    { label: "Chinese", img: "https://images.unsplash.com/photo-1585032226651-759b368d7246?w=100&h=100&fit=crop" },
+    { label: "South Indian", img: "https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=100&h=100&fit=crop" },
+    { label: "Dessert", img: "https://images.unsplash.com/photo-1551024506-0bccd828d307?w=100&h=100&fit=crop" },
+    { label: "Beverages", img: "https://images.unsplash.com/photo-1544145945-f90425340c7e?w=100&h=100&fit=crop" },
+  ];
+  const handleDishCategoryClick = (label: string) => {
+    // Manage the filter directly (instead of routing through
+    // handleFoodCategoryClick) so we can always clear the search box too —
+    // otherwise a leftover search term (e.g. "Biryani") kept hiding every
+    // other item even after switching back to "All".
+    if (label === "All") {
+      setSelectedFoodCategory(null);
+    } else {
+      setSelectedFoodCategory((prev) => (prev === label ? null : label));
+    }
+    setSearchQuery("");
+    document.getElementById("best-food-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   return (
     <div className="min-h-screen bg-white pb-20 lg:pb-0">
@@ -980,7 +1042,79 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="py-6 sm:py-8 bg-white -mt-4">
+      {sellerCards.length > 0 && (
+        <section className="bg-white pt-1 pb-3 sm:pb-4">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h2 className="text-[15px] sm:text-base md:text-lg font-extrabold text-gray-900 tracking-wide mb-2 leading-tight">
+              CAFES &amp; SELLERS NEAR YOU
+            </h2>
+            <div className="flex overflow-x-auto hide-scrollbar gap-3 sm:gap-4 pb-1">
+              {sellerCards.map((seller) => (
+                <button
+                  key={seller._id}
+                  onClick={() => setLocation(`/seller/${seller._id}`)}
+                  className="flex-shrink-0 w-[150px] sm:w-[180px] md:w-[200px] text-left"
+                >
+                  <div className="relative w-full h-[90px] sm:h-[110px] md:h-[125px] rounded-2xl overflow-hidden border border-gray-200 shadow-sm bg-gray-100">
+                    <img
+                      src={seller.image || "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=400&q=80"}
+                      alt={seller.shopName}
+                      className="w-full h-full object-cover"
+                    />
+                    {seller.isPureVeg && (
+                      <span className="absolute top-1.5 left-1.5 bg-green-700 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full">
+                        Pure Veg
+                      </span>
+                    )}
+                    <span className="absolute top-1.5 right-1.5 flex items-center gap-0.5 bg-green-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">
+                      <Star className="w-2.5 h-2.5 fill-white" />
+                      {seller.rating > 0 ? seller.rating.toFixed(1) : "New"}
+                    </span>
+                  </div>
+                  <p className="mt-1.5 text-[12px] sm:text-sm font-bold text-gray-900 leading-tight line-clamp-1">
+                    {seller.shopName}
+                  </p>
+                  <p className="text-[10px] sm:text-xs text-gray-500 leading-tight">
+                    {seller.itemCount} item{seller.itemCount > 1 ? "s" : ""}{seller.city ? ` · ${seller.city}` : ""}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Sticky dish-category bar — sticks to top once user scrolls down to the meals list */}
+      <div className="sticky top-0 z-40 bg-white border-b border-gray-100 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2">
+          <div className="flex overflow-x-auto hide-scrollbar gap-4 sm:gap-6">
+            {dishCategories.map((cat) => {
+              const isActive = cat.label === "All" ? !selectedFoodCategory : selectedFoodCategory === cat.label;
+              return (
+                <button
+                  key={cat.label}
+                  onClick={() => handleDishCategoryClick(cat.label)}
+                  className="flex-shrink-0 flex flex-col items-center gap-1"
+                >
+                  <div
+                    className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full overflow-hidden border-2 ${
+                      isActive ? "border-red-500" : "border-transparent"
+                    }`}
+                  >
+                    <img src={cat.img} alt={cat.label} className="w-full h-full object-cover" />
+                  </div>
+                  <span className={`text-[11px] sm:text-xs font-semibold whitespace-nowrap ${isActive ? "text-red-600" : "text-gray-700"}`}>
+                    {cat.label}
+                  </span>
+                  <span className={`w-5 h-0.5 rounded-full ${isActive ? "bg-red-500" : "bg-transparent"}`} />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <section id="best-food-section" className="py-6 sm:py-8 bg-white -mt-4">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-6 gap-3">
