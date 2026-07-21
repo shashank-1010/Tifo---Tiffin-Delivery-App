@@ -1197,6 +1197,7 @@ export default function SellerDashboard() {
     onSuccess: () => {
       toast({ title: "Success", description: `${currentServiceType === "meal" ? "Meal" : "Tiffin service"} added successfully` });
       queryClient.invalidateQueries({ queryKey: ["/api/seller/tiffins"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tiffins"] });
       setIsAddDialogOpen(false);
       form.reset();
       setWeeklyCustomizations([]);
@@ -1229,6 +1230,7 @@ export default function SellerDashboard() {
     onSuccess: () => {
       toast({ title: "Success", description: "Service updated successfully" });
       queryClient.invalidateQueries({ queryKey: ["/api/seller/tiffins"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tiffins"] });
       setEditingTiffin(null);
       form.reset();
       setWeeklyCustomizations([]);
@@ -1245,6 +1247,7 @@ export default function SellerDashboard() {
     onSuccess: () => {
       toast({ title: "Success", description: "Service deleted successfully" });
       queryClient.invalidateQueries({ queryKey: ["/api/seller/tiffins"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tiffins"] });
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message || "Failed to delete service", variant: "destructive" });

@@ -34,12 +34,12 @@ function Router() {
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
       <Route path="/tiffin/:id" component={TiffinDetail} />
+      <Route path="/seller/dashboard" component={SellerDashboard} />
       <Route path="/seller/:id" component={SellerMenu} />
       <Route path="/cart" component={CartPage} />
       <Route path="/my-bookings" component={MyBookings} />
       <Route path="/my-subscriptions" component={MySubscriptions} />
       <Route path="/my-bookings/:id/subscription" component={SubscriptionDetails} />
-      <Route path="/seller/dashboard" component={SellerDashboard} />
       <Route path="/admin" component={AdminPanel} />
       <Route path="/about" component={About} />
        <Route path="/cookie-policy" component={CookiePolicy} />
