@@ -18,7 +18,7 @@ const app = express();
 
 // ✅ SECURITY MIDDLEWARE - ORDER MATTERS!
 
-// 1. Helmet - Security headers (development me thoda relaxed)
+// 1. Helmet - Security headers
 app.use(helmet({
   contentSecurityPolicy: process.env.NODE_ENV === 'production' ? {
     directives: {
@@ -29,7 +29,7 @@ app.use(helmet({
       fontSrc: ["'self'", "https:"],
       connectSrc: ["'self'"],
     },
-  } : false, // Development me CSP disable for Vite
+  } : false,
   crossOriginEmbedderPolicy: false
 }));
 
@@ -43,7 +43,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-// 3. Body parser with limits (PEHLE BODY PARSER)
+// 3. Body parser with limits
 app.use(express.json({ 
   limit: '10kb'
 }));
@@ -52,31 +52,27 @@ app.use(express.urlencoded({
   limit: '10kb' 
 }));
 
-// ✅ TURNSTILE BYPASS MIDDLEWARE - BODY PARSER KE BAAD (YAHAN SAHI JAGAH HAI)
+// ✅ TURNSTILE BYPASS MIDDLEWARE
 app.use((req: Request, res: Response, next: NextFunction) => {
-  // Login aur register routes ke liye turnstileToken hatao
   if (req.path === '/api/auth/login' || req.path === '/api/auth/register') {
     if (req.body && req.body.turnstileToken) {
       console.log('🔧 Removing turnstileToken from request:', req.body.turnstileToken);
       delete req.body.turnstileToken;
-      console.log('✅ turnstileToken removed, body now:', req.body);
-    } else {
-      console.log('ℹ️ No turnstileToken found in request body');
     }
   }
   next();
 });
 
-// 4. Data sanitization against NoSQL injection
+// 4. Data sanitization
 app.use(mongoSanitize());
 
 // 5. Prevent parameter pollution
 app.use(hpp());
 
-// 6. Rate limiting (development me thoda relaxed)
+// 6. Rate limiting
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === 'production' ? 100 : 1000, // Development me zyada requests allow
+  max: process.env.NODE_ENV === 'production' ? 100 : 1000,
   message: {
     error: 'Too many requests from this IP, please try again after 15 minutes.'
   },
@@ -99,7 +95,7 @@ app.use('/api/', generalLimiter);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 
-// ✅ Check JWT secret presence
+// ✅ Check JWT secret
 if (!process.env.JWT_SECRET) {
   console.error("❌ JWT_SECRET missing in .env file!");
   process.exit(1);
@@ -139,166 +135,13 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// ✅ SIMPLE TELEGRAM BOT SETUP - NO ERRORS
-function setupSimpleTelegramBot() {
-  try {
-    const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '7749762991:AAF4re8yBw9MOneQDTl6N6Ek4wzk4PCOirY';
-    
-    if (!TELEGRAM_BOT_TOKEN) {
-      console.warn('⚠️ TELEGRAM_BOT_TOKEN not found. Telegram bot disabled.');
-      return;
-    }
-
-    // Use dynamic import to avoid require issues
-    import('node-telegram-bot-api').then((TelegramBot) => {
-      const bot = new TelegramBot.default(TELEGRAM_BOT_TOKEN, { polling: true });
-
-      // Generate verification code
-      function generateVerificationCode(): string {
-        return Math.floor(100000 + Math.random() * 900000).toString();
-      }
-
-      // Start command
-      bot.onText(/\/start/, async (msg) => {
-        const chatId = msg.chat.id;
-        
-        try {
-          await bot.sendMessage(chatId, 
-            `👋 Welcome to Tiffo Seller Bot!\n\n` +
-            `I'll send you instant order notifications.\n\n` +
-            `To get started, type:\n` +
-            `/verify your-email@example.com`
-          );
-          console.log(`✅ Start command received from chat ID: ${chatId}`);
-        } catch (error) {
-          console.error('Start command error:', error);
-        }
-      });
-
-      // Verify command - SUPER SIMPLE
-      bot.onText(/\/verify (.+)/, async (msg, match) => {
-        const chatId = msg.chat.id;
-        const email = match![1].trim();
-
-        try {
-          console.log(`📧 Verification request: ${email} from ${chatId}`);
-          
-          const verificationCode = generateVerificationCode();
-          
-          await bot.sendMessage(chatId,
-            `📧 Verification code: ${verificationCode}\n\n` +
-            `Use: /code ${verificationCode}\n\n` +
-            `This code expires in 15 minutes`
-          );
-
-          console.log(`✅ Verification code sent to ${email}: ${verificationCode}`);
-
-        } catch (error) {
-          console.error('Verify command error:', error);
-          await bot.sendMessage(chatId, '❌ Error. Please try: /verify youremail@gmail.com');
-        }
-      });
-
-      // Code verification
-      bot.onText(/\/code (.+)/, async (msg, match) => {
-        const chatId = msg.chat.id;
-        const code = match![1].trim();
-
-        try {
-          // For now, just accept any code to test
-          await bot.sendMessage(chatId,
-            `🎉 Verification Successful!\n\n` +
-            `You will now receive order notifications.\n\n` +
-            `Test order notification sent!`
-          );
-
-          // Send test order notification
-          const testOrder = {
-            customerName: "Test Customer",
-            customerPhone: "9876543210", 
-            tiffinTitle: "Butter Chicken Thali",
-            quantity: 2,
-            totalPrice: 380,
-            deliveryDate: "25 Dec 2023",
-            slot: "13:00-14:00",
-            deliveryAddress: "123 Test Address, Bangalore",
-            orderId: "TEST123"
-          };
-
-          setTimeout(() => {
-            sendTestOrderNotification(chatId, testOrder);
-          }, 2000);
-
-        } catch (error) {
-          console.error('Code verification error:', error);
-          await bot.sendMessage(chatId, '❌ Error. Please try again.');
-        }
-      });
-
-      // Help command
-      bot.onText(/\/help/, async (msg) => {
-        const chatId = msg.chat.id;
-        
-        await bot.sendMessage(chatId,
-          `🤖 Tiffo Seller Bot Help\n\n` +
-          `/start - Start the bot\n` +
-          `/verify email@example.com - Register your email\n` +
-          `/code 123456 - Verify with code\n` +
-          `/help - Show this help\n\n` +
-          `Once verified, you'll get instant order notifications!`
-        );
-      });
-
-      console.log('✅ Telegram bot started successfully!');
-      console.log('🤖 Search for: @TiffoSellerBot on Telegram');
-
-    }).catch(error => {
-      console.error('❌ Failed to load Telegram bot:', error);
-    });
-    
-  } catch (error) {
-    console.error('❌ Telegram bot setup failed:', error);
-  }
-}
-
-// ✅ TEST ORDER NOTIFICATION FUNCTION
-async function sendTestOrderNotification(chatId: number, orderDetails: any) {
-  try {
-    const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '7749762991:AAF4re8yBw9MOneQDTl6N6Ek4wzk4PCOirY';
-    
-    if (!TELEGRAM_BOT_TOKEN) return;
-
-    const TelegramBot = await import('node-telegram-bot-api');
-    const bot = new TelegramBot.default(TELEGRAM_BOT_TOKEN, { polling: false });
-
-    const {
-      customerName,
-      customerPhone,
-      tiffinTitle,
-      quantity,
-      totalPrice,
-      deliveryDate,
-      slot,
-      deliveryAddress,
-      orderId
-    } = orderDetails;
-
-    const message = `🎉 NEW ORDER #${orderId}\n\n` +
-      `Tiffin: ${tiffinTitle}\n` +
-      `Customer: ${customerName}\n` +
-      `Phone: ${customerPhone}\n` +
-      `Quantity: ${quantity}\n` +
-      `Delivery: ${deliveryDate} at ${slot}\n` +
-      `Address: ${deliveryAddress}\n` +
-      `Amount: ₹${totalPrice}\n\n` +
-      `⏰ ${new Date().toLocaleString('en-IN')}`;
-
-    await bot.sendMessage(chatId, message);
-    console.log(`✅ Test order notification sent to: ${chatId}`);
-    
-  } catch (error) {
-    console.error('❌ Failed to send test notification:', error);
-  }
+// ✅ TELEGRAM BOT - DISABLED FOR RENDER (To avoid 409 conflict)
+// Telegram polling doesn't work well with multiple Render instances
+// Use webhook instead if needed
+function setupTelegramBotDisabled() {
+  console.log('ℹ️ Telegram bot polling disabled on Render (to prevent conflicts)');
+  console.log('💡 Tip: Use Telegram webhooks for production');
+  return;
 }
 
 // ✅ Main async block
@@ -308,13 +151,13 @@ async function sendTestOrderNotification(chatId: number, orderDetails: any) {
     await connectDB();
     await createDefaultAdmin();
 
-    // Setup Telegram Bot
-    setupSimpleTelegramBot();
+    // Disable Telegram bot on Render
+    setupTelegramBotDisabled();
 
     // Register all routes
     const server = await registerRoutes(app);
 
-    // ✅ IMPORTANT: Vite setup ko pehle call karo
+    // ✅ IMPORTANT: Vite setup
     if (app.get("env") === "development") {
       console.log("🔧 Setting up Vite dev server...");
       await setupVite(app, server);
@@ -323,10 +166,11 @@ async function sendTestOrderNotification(chatId: number, orderDetails: any) {
       serveStatic(app);
     }
 
-    // ✅ Root route - Vite ke baad
+    // ✅ Root route
     app.get("/", (req: Request, res: Response) => {
       if (app.get("env") === "development") {
-        res.redirect("http://localhost:5000");
+        const devPort = process.env.PORT || 5000;
+        res.redirect(`http://localhost:${devPort}`);
       } else {
         res.json({ 
           message: "Tiffin Service API is running!",
@@ -346,25 +190,38 @@ async function sendTestOrderNotification(chatId: number, orderDetails: any) {
       res.status(status).json({ message });
     });
 
-    // Start server
-    const port = parseInt(process.env.PORT || "5000", 10);
-    const host = "localhost";
+    // ✅ FIXED: CRITICAL - Listen on 0.0.0.0 with PORT env variable
+    const PORT = parseInt(process.env.PORT || "5000", 10);
+    const HOST = "0.0.0.0"; // MUST BE 0.0.0.0 for Render
 
-    server.listen(port, host, () => {
-      const msg = `🚀 Server running at http://${host}:${port}`;
-      log ? log(msg) : console.log(msg);
-      console.log("🌐 Website should be available at: http://localhost:5000");
-      console.log("🤖 Telegram Bot: @TiffoSellerBot");
-      console.log("💡 Test the bot by searching '@TiffoSellerBot' on Telegram");
+    console.log(`🔄 Attempting to start server on ${HOST}:${PORT}...`);
+
+    server.listen(PORT, HOST, () => {
+      console.log(`🚀 Server successfully running on ${HOST}:${PORT}`);
+      console.log(`📡 Server is accessible on port ${PORT}`);
+      if (process.env.NODE_ENV === 'production') {
+        console.log('✅ Production mode - Ready for Render');
+      }
     });
 
     server.on("error", (err: any) => {
       console.error("❌ Server failed to start:", err.message);
+      console.error("Error details:", err);
       process.exit(1);
+    });
+
+    // Add graceful shutdown
+    process.on('SIGTERM', () => {
+      console.log('👋 SIGTERM received. Closing server gracefully...');
+      server.close(() => {
+        console.log('✅ Server closed');
+        process.exit(0);
+      });
     });
 
   } catch (err: any) {
     console.error("💥 Startup error:", err.message);
+    console.error("Full error:", err);
     process.exit(1);
   }
 })();
